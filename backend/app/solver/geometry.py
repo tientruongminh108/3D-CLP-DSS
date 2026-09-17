@@ -1,0 +1,354 @@
+from dataclasses import dataclass
+from typing import List, Tuple, Optional
+from enum import Enum
+import math
+
+
+class Posture(int, Enum):
+    LWH = 1
+    WLH = 2
+    HLW = 3
+    HWL = 4
+    LHW = 5
+    WHL = 6
+
+
+@dataclass(frozen=True)
+class Dimensions:
+    length: float
+    width: float
+    height: float
+
+    def apply_posture(self, posture: Posture) -> "Dimensions":
+        l, w, h = self.length, self.width, self.height
+        if posture == Posture.LWH:
+            return Dimensions(l, w, h)
+        elif posture == Posture.WLH:
+            return Dimensions(w, l, h)
+        elif posture == Posture.HLW:
+            return Dimensions(h, l, w)
+        elif posture == Posture.HWL:
+            return Dimensions(h, w, l)
+        elif posture == Posture.LHW:
+            return Dimensions(l, h, w)
+        elif posture == Posture.WHL:
+            return Dimensions(w, h, l)
+        return Dimensions(l, w, h)
+
+    def volume(self) -> float:
+        return self.length * self.width * self.height
+
+    def footprint_area(self) -> float:
+        return self.length * self.width
+
+
+@dataclass(frozen=True)
+class Position:
+    x: float
+    y: float
+    z: float
+
+
+@dataclass
+class BoundingBox:
+    min_x: float
+    min_y: float
+    min_z: float
+    max_x: float
+    max_y: float
+    max_z: float
+
+    @classmethod
+    def from_position_and_dims(cls, pos: Position, dims: Dimensions) -> "BoundingBox":
+        return cls(
+            min_x=pos.x,
+            min_y=pos.y,
+            min_z=pos.z,
+            max_x=pos.x + dims.length,
+            max_y=pos.y + dims.width,
+            max_z=pos.z + dims.height,
+        )
+
+    def overlaps(self, other: "BoundingBox") -> bool:
+        return not (
+            self.max_x <= other.min_x
+            or other.max_x <= self.min_x
+            or self.max_y <= other.min_y
+            or other.max_y <= self.min_y
+            or self.max_z <= other.min_z
+            or other.max_z <= self.min_z
+        )
+
+    def overlaps_xy(self, other: "BoundingBox") -> bool:
+        return not (
+            self.max_x <= other.min_x
+            or other.max_x <= self.min_x
+            or self.max_y <= other.min_y
+            or other.max_y <= self.min_y
+        )
+
+    def overlaps_yz(self, other: "BoundingBox") -> bool:
+        """Check overlap on Y and Z axes (for LIFO constraint)."""
+        return not (
+            self.max_y <= other.min_y
+            or other.max_y <= self.min_y
+            or self.max_z <= other.min_z
+            or other.max_z <= self.min_z
+        )
+
+    def supports(self, other: "BoundingBox") -> bool:
+        return (
+            abs(self.max_z - other.min_z) < 1e-6
+            and self.overlaps_xy(other)
+        )
+
+    def contact_area(self, other: "BoundingBox") -> float:
+        if not self.supports(other):
+            return 0.0
+        overlap_x = min(self.max_x, other.max_x) - max(self.min_x, other.min_x)
+        overlap_y = min(self.max_y, other.max_y) - max(self.min_y, other.min_y)
+        return max(0, overlap_x) * max(0, overlap_y)
+
+    def contains_point(self, x: float, y: float, z: float) -> bool:
+        return (
+            self.min_x <= x < self.max_x
+            and self.min_y <= y < self.max_y
+            and self.min_z <= z < self.max_z
+        )
+
+    def center(self) -> Position:
+        return Position(
+            (self.min_x + self.max_x) / 2,
+            (self.min_y + self.max_y) / 2,
+            (self.min_z + self.max_z) / 2,
+        )
+
+
+@dataclass(frozen=True)
+class ExtremePoint:
+    x: float
+    y: float
+    z: float
+
+    def to_position(self) -> Position:
+        return Position(self.x, self.y, self.z)
+
+
+def generate_extreme_points(
+    placed_boxes: List[BoundingBox],
+    container_dims: Dimensions,
+    tolerance_gap: float = 0.0,
+) -> List[ExtremePoint]:
+    points = set()
+
+    points.add(ExtremePoint(0, 0, 0))
+
+    for box in placed_boxes:
+        points.add(ExtremePoint(box.max_x, box.min_y, box.min_z))
+        points.add(ExtremePoint(box.min_x, box.max_y, box.min_z))
+        points.add(ExtremePoint(box.min_x, box.min_y, box.max_z))
+
+    valid_points = []
+    for p in points:
+        if (
+            p.x + tolerance_gap <= container_dims.length
+            and p.y + tolerance_gap <= container_dims.width
+            and p.z <= container_dims.height
+        ):
+            valid_points.append(p)
+
+    return valid_points
+
+
+def sort_extreme_points(points: List[ExtremePoint]) -> List[ExtremePoint]:
+    return sorted(points, key=lambda p: (p.z, p.y, p.x))
+
+
+def calculate_contact_ratio(
+    candidate_box: BoundingBox,
+    placed_boxes: List[BoundingBox],
+    container_dims: Dimensions,
+) -> float:
+    if candidate_box.min_z == 0:
+        return 1.0
+
+    contact_area = 0.0
+    footprint_area = (candidate_box.max_x - candidate_box.min_x) * (
+        candidate_box.max_y - candidate_box.min_y
+    )
+
+    for box in placed_boxes:
+        contact_area += box.contact_area(candidate_box)
+
+    if footprint_area == 0:
+        return 0.0
+
+    return contact_area / footprint_area
+
+
+def calculate_residual_volume(
+    candidate_box: BoundingBox,
+    placed_boxes: List[BoundingBox],
+    container_dims: Dimensions,
+) -> float:
+    total_volume = container_dims.volume()
+    occupied = sum(
+        (b.max_x - b.min_x) * (b.max_y - b.min_y) * (b.max_z - b.min_z)
+        for b in placed_boxes
+    )
+    candidate_vol = (
+        (candidate_box.max_x - candidate_box.min_x)
+        * (candidate_box.max_y - candidate_box.min_y)
+        * (candidate_box.max_z - candidate_box.min_z)
+    )
+    return total_volume - (occupied + candidate_vol)
+
+
+def calculate_cog(placed_boxes: List[BoundingBox], weights: List[float]) -> Position:
+    if not placed_boxes:
+        return Position(0, 0, 0)
+
+    total_weight = sum(weights)
+    if total_weight == 0:
+        return Position(0, 0, 0)
+
+    cog_x = sum(b.center().x * w for b, w in zip(placed_boxes, weights)) / total_weight
+    cog_y = sum(b.center().y * w for b, w in zip(placed_boxes, weights)) / total_weight
+    cog_z = sum(b.center().z * w for b, w in zip(placed_boxes, weights)) / total_weight
+
+    return Position(cog_x, cog_y, cog_z)
+
+
+def get_permitted_postures(this_way_up: bool, max_load_bearing_kg: float = None, weight_kg: float = None) -> List[Posture]:
+    """
+    Get permitted postures for an item.
+    
+    - this_way_up=True: only LWH, WLH (default for fragile/upright items)
+    - this_way_up=False: all 6 postures
+    - Override: if max_load_bearing_kg >= weight_kg * 3, allow vertical postures even if this_way_up=True
+      (item is sturdy enough to stand on its side/end)
+    """
+    if not this_way_up:
+        return list(Posture)
+    
+    # Allow vertical postures for sturdy items (load bearing >= 3x weight)
+    if max_load_bearing_kg is not None and weight_kg is not None:
+        if max_load_bearing_kg >= weight_kg * 3:
+            return [Posture.LWH, Posture.WLH, Posture.HLW, Posture.HWL]
+    
+    return [Posture.LWH, Posture.WLH]
+
+
+def check_support_ratio(
+    candidate_box: BoundingBox,
+    placed_boxes: List[BoundingBox],
+    min_support_ratio: float,
+) -> bool:
+    if candidate_box.min_z == 0:
+        return True
+
+    contact_area = 0.0
+    footprint_area = (candidate_box.max_x - candidate_box.min_x) * (
+        candidate_box.max_y - candidate_box.min_y
+    )
+
+    for box in placed_boxes:
+        contact_area += box.contact_area(candidate_box)
+
+    if footprint_area == 0:
+        return False
+
+    return (contact_area / footprint_area) >= min_support_ratio
+
+
+def check_load_bearing(
+    candidate_box: BoundingBox,
+    placed_boxes: List[BoundingBox],
+    candidate_weight: float,
+    placed_weights: List[float],
+    placed_load_limits: List[Optional[float]],
+) -> bool:
+    for i, box in enumerate(placed_boxes):
+        if box.supports(candidate_box):
+            limit = placed_load_limits[i]
+            if limit is not None:
+                supported_weight = placed_weights[i] + candidate_weight
+                if supported_weight > limit:
+                    return False
+    return True
+
+
+def check_cog_balance(
+    cog: Position,
+    container_dims: Dimensions,
+    tolerance_xy: float,
+    tolerance_z: float,
+) -> Tuple[bool, float, float]:
+    ideal_x = container_dims.length / 2
+    ideal_y = container_dims.width / 2
+    ideal_z = container_dims.height / 2
+
+    dev_xy = math.sqrt((cog.x - ideal_x) ** 2 + (cog.y - ideal_y) ** 2) / max(
+        container_dims.length, container_dims.width
+    )
+    dev_z = abs(cog.z - ideal_z) / container_dims.height
+
+    return (
+        dev_xy <= tolerance_xy and dev_z <= tolerance_z,
+        dev_xy,
+        dev_z,
+    )
+
+
+def project_point_down(
+    point: ExtremePoint,
+    placed_boxes: List[BoundingBox],
+    container_dims: Dimensions,
+) -> ExtremePoint:
+    """
+    Project a dangling extreme point down to the highest supporting surface below it.
+    Per Section 5.2.3: if point doesn't have solid support directly beneath it,
+    project it down (decreasing z) until it lands on a box top face or container floor.
+    """
+    x, y, z = point.x, point.y, point.z
+
+    # Check if already supported at current height
+    for box in placed_boxes:
+        if box.supports(BoundingBox.from_position_and_dims(Position(x, y, z), Dimensions(0.001, 0.001, 0.001))):
+            return point
+
+    # Find highest top face below z that covers (x, y)
+    candidate_z = 0.0
+    for box in placed_boxes:
+        if box.min_z < z and box.max_x > x and box.min_x <= x and box.max_y > y and box.min_y <= y:
+            if box.max_z > candidate_z:
+                candidate_z = box.max_z
+
+    return ExtremePoint(x, y, candidate_z)
+
+
+def prune_dominated_extreme_points(points: List[ExtremePoint]) -> List[ExtremePoint]:
+    """Dominance pruning per Section 5.2: Q dominates P if Q is at least as good 
+    on all 3 axes with equality on at least 2 and strict improvement on the third."""
+    if not points:
+        return []
+
+    points = sorted(points, key=lambda p: (p.z, p.y, p.x))
+
+    pruned = []
+    for p in points:
+        dominated = False
+        for q in pruned:
+            if (q.x <= p.x + 1e-9 and q.y <= p.y + 1e-9 and q.z <= p.z + 1e-9):
+                equal_axes = sum([
+                    abs(q.x - p.x) < 1e-9,
+                    abs(q.y - p.y) < 1e-9,
+                    abs(q.z - p.z) < 1e-9
+                ])
+                if equal_axes >= 2 and (q.x < p.x or q.y < p.y or q.z < p.z):
+                    dominated = True
+                    break
+        if not dominated:
+            pruned.append(p)
+
+    return pruned

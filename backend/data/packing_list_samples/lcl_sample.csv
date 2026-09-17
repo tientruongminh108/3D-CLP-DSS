@@ -1,0 +1,7 @@
+Item_ID,PO_No,Customer_Code,Description,Qty_Pcs,Qty_Cartons
+DT-8411,PO-2001,CUST-A,Dining Table,2,2
+CH-2205,PO-2001,CUST-A,Chair,4,4
+BD-3301,PO-2002,CUST-B,Bed Frame,1,1
+WF-4401,PO-2002,CUST-B,Wardrobe Frame,1,1
+SF-5501,PO-2003,CUST-C,Sofa Frame,1,1
+TB-6601,PO-2003,CUST-C,Coffee Table,1,1
