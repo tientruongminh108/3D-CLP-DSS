@@ -4,7 +4,7 @@ import { packingListApi } from '../hooks/useApi'
 import { useWizardStore } from '../hooks/useRunWizard'
 import { Icons } from './Layout'
 import { useToastStore } from './Toast'
-import { generatePackingListsCSVTemplate, downloadCSVTemplate } from '../utils/csvParser'
+import { generatePackingListsCSVTemplate, downloadCSVTemplate } from '../utils/csv'
 
 interface PackingList {
   id: string

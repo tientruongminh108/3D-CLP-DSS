@@ -107,6 +107,74 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 
+def seed_defaults(db_session=None):
+    """Seed default container and items if database is empty."""
+    db = db_session or SessionLocal()
+    try:
+        container_count = db.query(Container).count()
+        if container_count == 0:
+            default_container = Container(
+                container_type="40ft High Cube (40HC)",
+                internal_length_cm=1203.0,
+                internal_width_cm=235.0,
+                internal_height_cm=269.0,
+                max_weight_kg=28620.0,
+            )
+            db.add(default_container)
+            db.commit()
+
+        item_count = db.query(Item).count()
+        if item_count == 0:
+            import os
+            import pandas as pd
+            csv_paths = [
+                os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "item_master.csv"),
+                os.path.join(os.path.dirname(__file__), "..", "..", "data", "item_master.csv"),
+                "/app/data/item_master.csv",
+            ]
+            for p in csv_paths:
+                p = os.path.abspath(p)
+                if os.path.exists(p):
+                    try:
+                        df = pd.read_csv(p, encoding="utf-8-sig")
+                        for _, row in df.iterrows():
+                            val_twu = row.get("This_Way_Up", True)
+                            twu = str(val_twu).strip().lower() in ["true", "yes", "1", "y", "t"] if pd.notna(val_twu) else True
+                            val_sg = row.get("Stacking_Group", 1)
+                            try:
+                                sg = int(val_sg) if int(val_sg) in (1, 2) else 1
+                            except Exception:
+                                sg = 1
+                            val_load = row.get("Max_Load_Bearing_kg", None)
+                            max_load = None
+                            if pd.notna(val_load) and str(val_load).strip() and str(val_load).strip().lower() not in ["nan", "none", "null", ""]:
+                                try:
+                                    max_load = float(val_load)
+                                except Exception:
+                                    max_load = None
+                            item = Item(
+                                item_id=str(row["Item_ID"]).strip(),
+                                description=str(row["Description"]).strip(),
+                                length_cm=float(row["Length_cm"]),
+                                width_cm=float(row["Width_cm"]),
+                                height_cm=float(row["Height_cm"]),
+                                weight_kg=float(row["Weight_kg"]),
+                                this_way_up=twu,
+                                stacking_group=sg,
+                                max_load_bearing_kg=max_load,
+                            )
+                            db.add(item)
+                        db.commit()
+                        break
+                    except Exception:
+                        db.rollback()
+    except Exception:
+        db.rollback()
+    finally:
+        if db_session is None:
+            db.close()
+
+
 def get_db():
     db = SessionLocal()
     try:

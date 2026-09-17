@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { RunWizard } from './RunWizard'
 import { useToastStore } from './Toast'
+import { useWizardStore } from '../hooks/useRunWizard'
 import { packingListApi, containerApi, runApi } from '../services/api'
 
 const renderWithRouter = (ui: React.ReactElement) => {
@@ -16,10 +17,13 @@ const renderWithRouter = (ui: React.ReactElement) => {
 describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.useFakeTimers()
     act(() => {
       useToastStore.getState().toasts = []
+      useWizardStore.getState().reset()
     })
+    packingListApi.list = vi.fn().mockResolvedValue([
+      { id: 1, name: 'Test PL', filename: 'test.csv', total_cartons: 10, total_weight_kg: 200, total_volume_cm3: 400000, shipment_type: 'FCL', customer_count: 0, created_at: '', updated_at: '' }
+    ])
   })
 
   it('FE-13: Zero unplaced shows success state', async () => {
@@ -46,6 +50,9 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
     renderWithRouter(<RunWizard />)
 
     const plSelect = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(plSelect, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -91,6 +98,9 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
     renderWithRouter(<RunWizard />)
 
     const plSelect = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(plSelect, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -105,7 +115,7 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
       expect(screen.getByText(/loading plan result/i)).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/no space/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/no space/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/container.*size|split.*shipment/i)).toBeInTheDocument()
     expect(screen.queryByText(/delivery order/i)).not.toBeInTheDocument()
   })
@@ -140,6 +150,9 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
     renderWithRouter(<RunWizard />)
 
     const plSelect = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(plSelect, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -154,7 +167,7 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
       expect(screen.getByText(/loading plan result/i)).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/lifo.blocked/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/lifo.blocked/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/delivery order|consolidation/i)).toBeInTheDocument()
     expect(screen.queryByText(/bigger container/i)).not.toBeInTheDocument()
   })
@@ -191,6 +204,9 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
     renderWithRouter(<RunWizard />)
 
     const plSelect = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(plSelect, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -205,8 +221,8 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
       expect(screen.getByText(/loading plan result/i)).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/no space/i)).toBeInTheDocument()
-    expect(screen.getByText(/lifo.blocked/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/no space/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/lifo.blocked/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/4.*unplaced|unplaced.*4/i)).toBeInTheDocument()
   })
 })

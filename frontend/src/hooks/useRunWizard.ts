@@ -36,6 +36,7 @@ const initialState: WizardState = {
   options: DEFAULT_OPTIONS,
   isRunning: false,
   progress: null,
+  result: undefined,
 }
 
 export const useWizardStore = create<WizardStore>()(
@@ -87,7 +88,7 @@ export const useWizardStore = create<WizardStore>()(
 
       setRunning: (isRunning) => set({ isRunning }),
 
-      reset: () => set({ ...initialState, packingListVersion: get().packingListVersion }),
+      reset: () => set({ ...initialState, result: undefined, packingListVersion: get().packingListVersion }),
 
       bumpPackingListVersion: () => set((state) => ({ packingListVersion: state.packingListVersion + 1 })),
 

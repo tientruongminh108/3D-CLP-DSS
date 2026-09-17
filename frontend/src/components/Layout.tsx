@@ -120,8 +120,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', path: '/', icon: <Icons.Home /> },
-  { label: 'New Run', path: '/new-run', icon: <Icons.Play /> },
+  { label: 'New Run', path: '/', icon: <Icons.Play /> },
   { label: 'Run History', path: '/history', icon: <Icons.Clock /> },
   {
     label: 'Data Management',
@@ -162,8 +161,6 @@ export function Layout() {
           className={`bg-white border-r border-slate-200 flex flex-col h-full sticky top-0 z-50 transition-all duration-200 ${
             sidebarCollapsed ? 'w-20' : 'w-64'
           }`}
-          role="navigation"
-          aria-label="Main navigation"
         >
           <div className="p-4 border-b border-slate-200">
             <div className="flex items-center gap-3">
@@ -188,7 +185,7 @@ export function Layout() {
             </div>
           </div>
 
-          <nav className="flex-1 p-4">
+          <nav className="flex-1 p-4" aria-label="Main navigation">
             <ul className="list-none p-0 m-0">
               {navItems.map((item) => {
                 const hasChildren = item.children && item.children.length > 0

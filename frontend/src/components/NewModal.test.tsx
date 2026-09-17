@@ -32,7 +32,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
 
       renderWithRouter(<ItemMasterTable />)
 
-      const newButton = screen.getByRole('button', { name: /new item/i })
+      const newButton = await screen.findByRole('button', { name: /new item/i })
       fireEvent.click(newButton)
 
       await waitFor(() => {
@@ -58,7 +58,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
 
       renderWithRouter(<ItemMasterTable />)
 
-      const newButton = screen.getByRole('button', { name: /new item/i })
+      const newButton = await screen.findByRole('button', { name: /new item/i })
       fireEvent.click(newButton)
 
       await waitFor(() => {
@@ -95,7 +95,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
 
       renderWithRouter(<ItemMasterTable />)
 
-      const newButton = screen.getByRole('button', { name: /new item/i })
+      const newButton = await screen.findByRole('button', { name: /new item/i })
       fireEvent.click(newButton)
 
       await waitFor(() => {
@@ -117,7 +117,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
       })
 
       await waitFor(() => {
-        expect(screen.getByText('NEW-ITEM')).toBeInTheDocument()
+        expect(screen.getAllByText('NEW-ITEM').length).toBeGreaterThan(0)
       })
     })
   })
@@ -131,7 +131,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
 
       renderWithRouter(<ContainerTable />)
 
-      const newButton = screen.getByRole('button', { name: /new container/i })
+      const newButton = await screen.findByRole('button', { name: /new container/i })
       fireEvent.click(newButton)
 
       await waitFor(() => {
@@ -153,7 +153,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
 
       renderWithRouter(<ContainerTable />)
 
-      const newButton = screen.getByRole('button', { name: /new container/i })
+      const newButton = await screen.findByRole('button', { name: /new container/i })
       fireEvent.click(newButton)
 
       await waitFor(() => {
@@ -187,7 +187,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
 
       renderWithRouter(<ContainerTable />)
 
-      const newButton = screen.getByRole('button', { name: /new container/i })
+      const newButton = await screen.findByRole('button', { name: /new container/i })
       fireEvent.click(newButton)
 
       await waitFor(() => {
@@ -208,7 +208,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
       })
 
       await waitFor(() => {
-        expect(screen.getByText('NEW-CTN')).toBeInTheDocument()
+        expect(screen.getAllByText('NEW-CTN').length).toBeGreaterThan(0)
       })
     })
   })

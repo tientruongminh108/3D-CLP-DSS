@@ -3,7 +3,7 @@ import { itemApi } from '../hooks/useApi'
 import type { Item, ItemCreate } from '../types/api'
 import { Icons } from './Layout'
 import { useToastStore } from './Toast'
-import { generateItemsCSVTemplate, downloadCSVTemplate } from '../utils/csvParser'
+import { generateItemsCSVTemplate, downloadCSVTemplate } from '../utils/csv'
 
 export function ItemMasterTable() {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -26,31 +26,35 @@ export function ItemMasterTable() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const { success: toastSuccess, error: toastError } = useToastStore()
 
+  const loadItems = async () => {
+    try {
+      const data = await itemApi.list()
+      setItems(data)
+    } catch (err: any) {
+      console.error('Failed to load items', err)
+      toastError('Failed to load items from server')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    itemApi.list()
-      .then((data) => {
-        setItems(data)
-        setLoading(false)
-      })
-      .catch(() => {
-        setLoading(false)
-      })
+    loadItems()
   }, [])
 
   const handleMasterDataUpload = async (file: File | undefined) => {
     if (!file) return
     setLoading(true)
+    let uploadSuccess = false
     try {
       const result = await itemApi.uploadCsv(file)
+      uploadSuccess = true
       if (result.created > 0 || result.updated > 0) {
         toastSuccess(`Imported ${result.created} new items, updated ${result.updated} existing items`)
       }
       if (result.errors && result.errors.length > 0) {
         toastError(`${result.errors.length} rows had errors: ${result.errors.slice(0, 3).join('; ')}`)
       }
-      // Reload from API to get server-generated IDs
-      const updated = await itemApi.list()
-      setItems(updated)
     } catch (err: any) {
       const detail = err.response?.data?.detail
       const errorMsg = typeof detail === 'string'
@@ -65,6 +69,16 @@ export function ItemMasterTable() {
       setLoading(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
+      }
+    }
+
+    if (uploadSuccess) {
+      try {
+        const updated = await itemApi.list()
+        setItems(updated)
+      } catch (err: any) {
+        console.error('Failed to refresh items', err)
+        toastError('Failed to refresh items table')
       }
     }
   }
@@ -263,7 +277,7 @@ export function ItemMasterTable() {
 
         {showModal && (
           <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h3 className="modal-title">{editingItem ? 'Edit Item' : 'New Item'}</h3>
                 <button className="modal-close" onClick={() => setShowModal(false)}>
@@ -353,8 +367,9 @@ export function ItemMasterTable() {
                       {errors.weight_kg && <p className="error-text">{errors.weight_kg}</p>}
                     </div>
                     <div>
-                      <label className="label">This Way Up</label>
+                      <label className="label" htmlFor="this_way_up">This Way Up</label>
                       <select
+                        id="this_way_up"
                         className="input"
                         value={formData.this_way_up ? 'true' : 'false'}
                         onChange={(e) => setFormData({ ...formData, this_way_up: e.target.value === 'true' })}

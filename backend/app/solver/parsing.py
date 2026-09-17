@@ -177,7 +177,7 @@ def expand_packing_list(
     for row_idx, row in enumerate(packing_rows):
         item = items.get(row.item_id)
         if not item:
-            raise ValidationError(f"Row {row_idx + 1}: Item_ID '{row.item_id}' not found in item master")
+            raise ValidationError(f"Row {row_idx + 1}: Item_ID '{row.item_id}' not found in Item Master. Please register this item in Data Management > Items first.")
 
         cust_seq = customer_sequence.get(row.customer_code, 0) if row.customer_code else 0
 

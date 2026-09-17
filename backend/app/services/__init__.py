@@ -27,6 +27,7 @@ from app.core.exceptions import NotFoundError, ConflictError, ValidationError
 from app.solver.pipeline import run_pipeline
 from app.solver.parsing import parse_container_spec, parse_item_master
 from app.config import get_settings
+from app.services.mock_packer import run_deterministic_mock_pack
 
 
 def generate_mock_run_result(
@@ -241,6 +242,7 @@ class ItemService:
 
     def to_item_base(self, item: Item):
         from app.core.models import ItemBase
+        stk = item.stacking_group if item.stacking_group in (1, 2) else 1
         return ItemBase(
             item_id=item.item_id,
             description=item.description,
@@ -248,8 +250,8 @@ class ItemService:
             width_cm=item.width_cm,
             height_cm=item.height_cm,
             weight_kg=item.weight_kg,
-            this_way_up=item.this_way_up,
-            stacking_group=item.stacking_group,
+            this_way_up=bool(item.this_way_up),
+            stacking_group=stk,
             max_load_bearing_kg=item.max_load_bearing_kg,
         )
 
@@ -381,19 +383,23 @@ class RunService:
 
         try:
             if progress_callback:
-                progress_callback(10, "Starting optimization...")
-            time.sleep(0.5)
+                progress_callback(20, "Fetching item specifications...")
+
+            # Fetch actual items from database
+            item_ids = [row.item_id for row in run_create.packing_list.rows]
+            db_items = self.db.query(Item).filter(Item.item_id.in_(item_ids)).all()
+            item_lookup = {it.item_id: it for it in db_items}
+
             if progress_callback:
-                progress_callback(30, "Generating placement blocks...")
-            time.sleep(0.5)
-            if progress_callback:
-                progress_callback(60, "Running genetic algorithm...")
-            time.sleep(0.5)
-            if progress_callback:
-                progress_callback(90, "Finalizing solution...")
-            
-            mock_result = generate_mock_run_result(container, total_cartons, shipment_type)
-            mock_result.run_id = run_id
+                progress_callback(60, "Generating 3D placement coordinates...")
+
+            mock_result = run_deterministic_mock_pack(
+                container=container,
+                packing_rows=run_create.packing_list.rows,
+                item_lookup=item_lookup,
+                options=run_create.options,
+                run_id=run_id,
+            )
             
             db_run.status = RunStatus.COMPLETED.value
             db_run.result_json = mock_result.model_dump_json()
@@ -505,7 +511,7 @@ class PackingListService:
         existing_items = {i[0] for i in self.db.query(Item.item_id).filter(Item.item_id.in_(item_ids)).all()}
         missing = item_ids - existing_items
         if missing:
-            raise ValidationError(f"Item_ID '{next(iter(missing))}' not found in Item Master")
+            raise ValidationError(f"Item_ID '{next(iter(missing))}' not found in Item Master. Please register this item in Data Management > Items first.")
 
         db_packing_list = DBPackingList(
             name=packing_list.name,

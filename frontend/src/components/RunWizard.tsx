@@ -26,7 +26,7 @@ function Step1PackingList({
   }
   onSelectExisting: (id: string) => void
   setPackingListPreview: (preview: PackingListPreview | undefined) => void
-  setPackingListMode?: (mode: 'existing' | 'upload' | 'paste') => void
+  setPackingListMode: (mode: 'existing' | 'upload' | 'paste') => void
 }) {
   const { preview, selectedId } = packingList
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -177,6 +177,8 @@ function Step1PackingList({
         if (fileInputRef.current) fileInputRef.current.value = ''
       }
     }
+  }
+
   const triggerFileInput = () => {
     fileInputRef.current?.click()
   }
@@ -520,6 +522,7 @@ export function RunWizard() {
 
   const { success: toastSuccess, error: toastError } = useToastStore()
   const [isLoading, setIsLoading] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
   const runRequestRef = useRef(0)
   const cancelledRef = useRef(false)
 
@@ -531,6 +534,7 @@ export function RunWizard() {
     const selectedType = container.selectedType
     const runOptions = options
     cancelledRef.current = false
+    setRunError(null)
 
     setIsLoading(true)
     setRunning(true)
@@ -574,7 +578,9 @@ export function RunWizard() {
       toastSuccess('Loading plan optimization completed successfully')
     } catch (error: unknown) {
       if (requestId !== runRequestRef.current || cancelledRef.current) return
-      toastError(error instanceof Error ? error.message : 'Failed to run loading plan')
+      const msg = error instanceof Error ? error.message : 'Failed to run loading plan'
+      setRunError(msg)
+      toastError(msg)
     } finally {
       if (requestId === runRequestRef.current) {
         setIsLoading(false)
@@ -624,6 +630,20 @@ export function RunWizard() {
 
       <main className="flex-1 overflow-y-auto min-h-0">
         <div className="max-w-3xl mx-auto space-y-6">
+          {runError && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
+              <div>
+                <strong>Execution Error:</strong> {runError}
+              </div>
+              <button
+                type="button"
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium transition-colors"
+                onClick={() => void handleRun()}
+              >
+                Retry
+              </button>
+            </div>
+          )}
           <Step1PackingList
             packingList={packingList}
             onSelectExisting={setPackingListSelected}

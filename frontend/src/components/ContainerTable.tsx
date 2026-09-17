@@ -3,7 +3,7 @@ import { containerApi } from '../hooks/useApi'
 import type { Container, ContainerCreate } from '../types/api'
 import { Icons } from './Layout'
 import { useToastStore } from './Toast'
-import { generateContainersCSVTemplate, downloadCSVTemplate } from '../utils/csvParser'
+import { generateContainersCSVTemplate, downloadCSVTemplate } from '../utils/csv'
 
 export function ContainerTable() {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -21,30 +21,35 @@ export function ContainerTable() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const { success: toastSuccess, error: toastError } = useToastStore()
 
+  const loadContainers = async () => {
+    try {
+      const data = await containerApi.list()
+      setContainers(data)
+    } catch (err: any) {
+      console.error('Failed to load containers', err)
+      toastError('Failed to load containers from server')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    containerApi.list()
-      .then((data) => {
-        setContainers(data)
-        setLoading(false)
-      })
-      .catch(() => {
-        setLoading(false)
-      })
+    loadContainers()
   }, [])
 
   const handleMasterDataUpload = async (file: File | undefined) => {
     if (!file) return
     setLoading(true)
+    let uploadSuccess = false
     try {
       const result = await containerApi.uploadCsv(file)
+      uploadSuccess = true
       if (result.created > 0 || result.updated > 0) {
         toastSuccess(`Imported ${result.created} new containers, updated ${result.updated} existing containers`)
       }
       if (result.errors && result.errors.length > 0) {
         toastError(`${result.errors.length} rows had errors: ${result.errors.slice(0, 3).join('; ')}`)
       }
-      const updated = await containerApi.list()
-      setContainers(updated)
     } catch (err: any) {
       const detail = err.response?.data?.detail
       const errorMsg = typeof detail === 'string'
@@ -59,6 +64,16 @@ export function ContainerTable() {
       setLoading(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
+      }
+    }
+
+    if (uploadSuccess) {
+      try {
+        const updated = await containerApi.list()
+        setContainers(updated)
+      } catch (err: any) {
+        console.error('Failed to refresh containers', err)
+        toastError('Failed to refresh containers table')
       }
     }
   }
@@ -221,7 +236,7 @@ export function ContainerTable() {
 
         {showModal && (
           <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h3 className="modal-title">{editingContainer ? 'Edit Container' : 'New Container'}</h3>
                 <button className="modal-close" onClick={() => setShowModal(false)}>

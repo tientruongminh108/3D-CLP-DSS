@@ -177,6 +177,9 @@ export interface PlacedBox extends Box {
   actual_length: number
   actual_width: number
   actual_height: number
+  step_index: number
+  color?: string
+  description?: string
 }
 
 export interface LoadMetrics {
@@ -237,6 +240,8 @@ export interface LayerBox {
   height: number
   posture: Posture
   customer_sequence: number
+  step_index?: number
+  color?: string
 }
 
 export interface RunSummary {

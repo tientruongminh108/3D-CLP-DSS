@@ -8,7 +8,7 @@ __all__ = [
     "ContainerBase", "ContainerCreate", "ContainerUpdate",
     "PackingListRow", "PackingListUpload", "PackingListPreview",
     "RunOptions", "RunCreate", "RunCreateQuick",
-    "Box", "PlacedBox", "Block", "PlacedBlock",
+    "Box", "PlacedBox", "Block", "PlacedBlock", "Layer", "LayerBox",
     "LoadMetrics", "UnplacedCarton", "RunResult", "RunSummary",
     "ValidationError", "ValidationResponse",
     "StackingGroup", "Posture", "ShipmentType", "UnplacedReason", "RunStatus",

@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { runApi } from '../hooks/useApi'
+import { runApi, packingListApi } from '../hooks/useApi'
 import { Icons } from './Layout'
 import type { RunSummary } from '../types/api'
-import { parsePackingListFile } from '../utils/fileUpload'
 import { useToastStore } from './Toast'
 
 export function Dashboard() {
@@ -57,16 +56,23 @@ export function Dashboard() {
   const handleFileUpload = async (file: File | undefined) => {
     if (!file) return
 
-    const result = await parsePackingListFile(file)
-
-    if (result.success && result.data) {
-      toastSuccess(`Successfully loaded ${result.data.preview.total_cartons} cartons (${result.data.preview.rows.length} items) from CSV`)
-    } else {
-      toastError(result.error || 'Failed to parse file')
-    }
-    // Reset file input to allow re-uploading same file
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+    try {
+      const result = await packingListApi.uploadAndSaveCsv(file)
+      if (result.success && result.preview) {
+        toastSuccess(`Successfully saved "${result.name}" with ${result.preview.total_cartons} cartons (${result.preview.rows.length} items)`)
+        loadDashboardData()
+      } else {
+        const errorMsg = result.errors && result.errors.length > 0
+          ? result.errors.join('; ')
+          : 'Failed to import packing list'
+        toastError(errorMsg)
+      }
+    } catch (err: unknown) {
+      toastError(err instanceof Error ? err.message : 'Failed to upload packing list')
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
 

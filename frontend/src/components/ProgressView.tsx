@@ -28,7 +28,7 @@ export function ProgressView({ progress, onCancel }: ProgressViewProps) {
       <div className="flex items-center gap-4 mb-6">
         <div className="progress-spinner" role="status" aria-label="Loading" />
         <div>
-          <h2 className="text-xl font-semibold">{label}{genInfo}</h2>
+          <h2 className="text-xl font-semibold">Running Optimization &ndash; {label}{genInfo}</h2>
           <p className="text-muted text-sm">{progress.message}</p>
         </div>
       </div>

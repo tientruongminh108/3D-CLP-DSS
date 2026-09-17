@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Union, Dict, Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 import uuid
@@ -94,6 +94,23 @@ class Item(ItemBase):
 
     class Config:
         from_attributes = True
+
+    @field_validator("stacking_group", mode="before")
+    @classmethod
+    def coerce_db_stacking_group(cls, v):
+        if isinstance(v, int):
+            if v in (1, 2):
+                return StackingGroup(v)
+            return StackingGroup.STURDY
+        if isinstance(v, str):
+            try:
+                iv = int(v)
+                if iv in (1, 2):
+                    return StackingGroup(iv)
+            except ValueError:
+                pass
+            return StackingGroup.STURDY
+        return v
 
 
 class ContainerBase(BaseModel):
@@ -191,29 +208,53 @@ class Box(BaseModel):
     box_id: str
     item_id: str
     po_no: str
-    customer_code: Optional[str]
-    customer_sequence: int
+    customer_code: Optional[str] = None
+    customer_sequence: int = 1
+    description: Optional[str] = None
     length_cm: float
     width_cm: float
     height_cm: float
     weight_kg: float
-    this_way_up: bool
-    stacking_group: int
-    max_load_bearing_kg: Optional[float]
-    permitted_postures: List[Posture]
-    inflated_length: float
-    inflated_width: float
-    inflated_height: float
+    this_way_up: bool = True
+    stacking_group: int = 1
+    max_load_bearing_kg: Optional[float] = None
+    permitted_postures: List[Posture] = [Posture.LWH]
+    inflated_length: float = 0
+    inflated_width: float = 0
+    inflated_height: float = 0
 
 
 class PlacedBox(Box):
     x: float
     y: float
     z: float
-    posture: Posture
+    posture: Posture = Posture.LWH
     actual_length: float
     actual_width: float
     actual_height: float
+    step_index: int = 1
+    color: Optional[str] = None
+
+
+class LayerBox(BaseModel):
+    box_id: str
+    item_id: str
+    x: float
+    y: float
+    z: float
+    length: float
+    width: float
+    height: float
+    posture: Posture = Posture.LWH
+    customer_sequence: int = 1
+    step_index: int = 1
+    color: Optional[str] = None
+
+
+class Layer(BaseModel):
+    z_min: float
+    z_max: float
+    boxes: List[LayerBox]
 
 
 class Block(BaseModel):
@@ -258,13 +299,13 @@ class UnplacedCarton(BaseModel):
     box_id: str
     item_id: str
     po_no: str
-    customer_code: Optional[str]
-    customer_sequence: int
-    reason: UnplacedReason
-    length_cm: float
-    width_cm: float
-    height_cm: float
-    weight_kg: float
+    customer_code: Optional[str] = None
+    customer_sequence: int = 1
+    reason: UnplacedReason = UnplacedReason.NO_SPACE
+    length_cm: float = 0
+    width_cm: float = 0
+    height_cm: float = 0
+    weight_kg: float = 0
 
 
 class RunResult(BaseModel):
@@ -274,7 +315,7 @@ class RunResult(BaseModel):
     metrics: LoadMetrics
     placed_boxes: List[PlacedBox]
     unplaced_cartons: List[UnplacedCarton]
-    layers: List[dict]
+    layers: Union[List[Layer], List[dict]] = []
     created_at: datetime
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None

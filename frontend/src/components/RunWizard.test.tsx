@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { RunWizard } from './RunWizard'
 import { useToastStore } from './Toast'
+import { useWizardStore } from '../hooks/useRunWizard'
 import { packingListApi, containerApi, runApi } from '../services/api'
 
 const renderWithRouter = (ui: React.ReactElement) => {
@@ -18,7 +19,11 @@ describe('Run Wizard (Section 6.2 - FE-04 to FE-12)', () => {
     vi.clearAllMocks()
     act(() => {
       useToastStore.getState().toasts = []
+      useWizardStore.getState().reset()
     })
+    packingListApi.list = vi.fn().mockResolvedValue([
+      { id: 1, name: 'Test PL', filename: 'test.csv', total_cartons: 10, total_weight_kg: 200, total_volume_cm3: 400000, shipment_type: 'FCL', customer_count: 0, created_at: '', updated_at: '' }
+    ])
   })
 
   afterEach(() => {
@@ -38,6 +43,9 @@ describe('Run Wizard (Section 6.2 - FE-04 to FE-12)', () => {
     renderWithRouter(<RunWizard />)
 
     const select = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(select, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -45,15 +53,17 @@ describe('Run Wizard (Section 6.2 - FE-04 to FE-12)', () => {
     })
   })
 
-  it('FE-06: Run button disabled when Step 1 empty', () => {
+  it('FE-06: Run button disabled when Step 1 empty', async () => {
     containerApi.list = vi.fn().mockResolvedValue([
       { id: 1, container_type: '40HC', internal_length_cm: 1203.2, internal_width_cm: 235.2, internal_height_cm: 270.0, max_weight_kg: 28000, created_at: '', updated_at: '' }
     ])
 
     renderWithRouter(<RunWizard />)
 
-    const runButton = screen.getByRole('button', { name: /execute loading plan/i })
-    expect(runButton).toBeDisabled()
+    await waitFor(() => {
+      const runButton = screen.getByRole('button', { name: /execute loading plan/i })
+      expect(runButton).toBeDisabled()
+    })
   })
 
   it('FE-07: Run button disabled when Step 2 empty', async () => {
@@ -66,6 +76,9 @@ describe('Run Wizard (Section 6.2 - FE-04 to FE-12)', () => {
     renderWithRouter(<RunWizard />)
 
     const select = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(select, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -87,6 +100,9 @@ describe('Run Wizard (Section 6.2 - FE-04 to FE-12)', () => {
     renderWithRouter(<RunWizard />)
 
     const plSelect = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(plSelect, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -137,21 +153,27 @@ describe('Run Wizard (Section 6.2 - FE-04 to FE-12)', () => {
     containerApi.list = vi.fn().mockResolvedValue([
       { id: 1, container_type: '40HC', internal_length_cm: 1203.2, internal_width_cm: 235.2, internal_height_cm: 270.0, max_weight_kg: 28000, created_at: '', updated_at: '' }
     ])
-    runApi.createQuick = vi.fn().mockResolvedValue({
-      run_id: 'test-run-1',
-      status: 'completed',
-      container: { id: 1, container_type: '40HC', internal_length_cm: 1203.2, internal_width_cm: 235.2, internal_height_cm: 270.0, max_weight_kg: 28000, created_at: '', updated_at: '' },
-      metrics: { placed_count: 10, unplaced_count: 0, total_cartons: 10, fill_rate: 0.85, used_weight_kg: 10000, max_weight_kg: 28000, weight_utilization: 35.7, cog_x: 601.6, cog_y: 117.6, cog_z: 135.0, cog_deviation_xy: 0, cog_deviation_z: 0 },
-      placed_boxes: [],
-      unplaced_cartons: [],
-      layers: [],
-      created_at: new Date().toISOString(),
-      completed_at: new Date().toISOString(),
+    runApi.createQuick = vi.fn().mockImplementation(async () => {
+      await new Promise(r => setTimeout(r, 60))
+      return {
+        run_id: 'test-run-1',
+        status: 'completed',
+        container: { id: 1, container_type: '40HC', internal_length_cm: 1203.2, internal_width_cm: 235.2, internal_height_cm: 270.0, max_weight_kg: 28000, created_at: '', updated_at: '' },
+        metrics: { placed_count: 10, unplaced_count: 0, total_cartons: 10, fill_rate: 0.85, used_weight_kg: 10000, max_weight_kg: 28000, weight_utilization: 35.7, cog_x: 601.6, cog_y: 117.6, cog_z: 135.0, cog_deviation_xy: 0, cog_deviation_z: 0 },
+        placed_boxes: [],
+        unplaced_cartons: [],
+        layers: [],
+        created_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      }
     })
 
     renderWithRouter(<RunWizard />)
 
     const plSelect = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(plSelect, { target: { value: '1' } })
 
     await waitFor(() => {
@@ -188,6 +210,9 @@ describe('Run Wizard (Section 6.2 - FE-04 to FE-12)', () => {
     renderWithRouter(<RunWizard />)
 
     const plSelect = screen.getByRole('combobox', { name: /packing list/i })
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /test pl/i })).toBeInTheDocument()
+    })
     fireEvent.change(plSelect, { target: { value: '1' } })
 
     await waitFor(() => {

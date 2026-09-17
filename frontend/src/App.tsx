@@ -12,8 +12,9 @@ function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/new-run" element={<RunWizard />} />
+        <Route path="/" element={<RunWizard />} />
+        <Route path="/new-run" element={<Navigate to="/" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/history" element={<RunHistory />} />
         <Route path="/data" element={<Navigate to="/data/packing-lists" replace />} />
         <Route path="/data/packing-lists" element={<PackingListsManagement />} />
