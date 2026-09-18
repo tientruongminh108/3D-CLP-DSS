@@ -139,23 +139,40 @@ def generate_extreme_points(
     container_dims: Dimensions,
     tolerance_gap: float = 0.0,
 ) -> List[ExtremePoint]:
-    points = set()
+    """Generate candidate anchor (extreme) points from placed box faces.
 
-    points.add(ExtremePoint(0, 0, 0))
+    Each placed box contributes three new candidate points at its three
+    outer faces.  Every generated point is immediately projected downward
+    to the highest supporting surface beneath it (or the container floor),
+    ensuring no floating anchor point is ever returned.
+    """
+    raw_points: set = set()
+
+    # Origin is always a valid anchor (container floor at door corner).
+    raw_points.add(ExtremePoint(0, 0, 0))
 
     for box in placed_boxes:
-        points.add(ExtremePoint(box.max_x, box.min_y, box.min_z))
-        points.add(ExtremePoint(box.min_x, box.max_y, box.min_z))
-        points.add(ExtremePoint(box.min_x, box.min_y, box.max_z))
+        # Face beyond box along X (right-hand side in length direction)
+        raw_points.add(ExtremePoint(box.max_x, box.min_y, box.min_z))
+        # Face beyond box along Y (right-hand side in width direction)
+        raw_points.add(ExtremePoint(box.min_x, box.max_y, box.min_z))
+        # Top face of box — anchor point for stacking
+        raw_points.add(ExtremePoint(box.min_x, box.min_y, box.max_z))
 
     valid_points = []
-    for p in points:
-        if (
+    for p in raw_points:
+        # Bounds check (must be within container footprint)
+        if not (
             p.x + tolerance_gap <= container_dims.length
             and p.y + tolerance_gap <= container_dims.width
             and p.z <= container_dims.height
         ):
-            valid_points.append(p)
+            continue
+
+        # Apply downward gravity projection: snap any floating point to the
+        # highest supporting surface beneath (x, y) or to the floor (z=0).
+        projected = project_point_down(p, placed_boxes, container_dims)
+        valid_points.append(projected)
 
     return valid_points
 

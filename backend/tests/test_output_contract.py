@@ -353,3 +353,264 @@ class TestVisualizationData:
         assert abs(cog_x - ideal_x) < 100
         assert abs(cog_y - ideal_y) < 100
         assert abs(cog_z - ideal_z) < 100
+
+
+class TestOutputCoordinateIntegrity:
+    """Tests ensuring no cargos protrude outside block or container bounds"""
+
+    def test_transform_position_by_posture_all_six_postures(self):
+        """Ensure transform_position_by_posture correctly maps (x, y, z) without inversion"""
+        from app.solver.geometry import Position, Posture
+        from app.solver.output import transform_position_by_posture
+
+        pos = Position(10.0, 20.0, 30.0)
+
+        # 1. LWH: (x, y, z)
+        t_lwh = transform_position_by_posture(pos, Posture.LWH)
+        assert (t_lwh.x, t_lwh.y, t_lwh.z) == (10.0, 20.0, 30.0)
+
+        # 2. WLH: (y, x, z)
+        t_wlh = transform_position_by_posture(pos, Posture.WLH)
+        assert (t_wlh.x, t_wlh.y, t_wlh.z) == (20.0, 10.0, 30.0)
+
+        # 3. HLW: (z, x, y)
+        t_hlw = transform_position_by_posture(pos, Posture.HLW)
+        assert (t_hlw.x, t_hlw.y, t_hlw.z) == (30.0, 10.0, 20.0)
+
+        # 4. HWL: (z, y, x)
+        t_hwl = transform_position_by_posture(pos, Posture.HWL)
+        assert (t_hwl.x, t_hwl.y, t_hwl.z) == (30.0, 20.0, 10.0)
+
+        # 5. LHW: (x, z, y)
+        t_lhw = transform_position_by_posture(pos, Posture.LHW)
+        assert (t_lhw.x, t_lhw.y, t_lhw.z) == (10.0, 30.0, 20.0)
+
+        # 6. WHL: (y, z, x)
+        t_whl = transform_position_by_posture(pos, Posture.WHL)
+        assert (t_whl.x, t_whl.y, t_whl.z) == (20.0, 30.0, 10.0)
+
+    def test_explode_rotated_individual_box_stays_within_bbox(self):
+        """Ensure an individual box placed with non-LWH posture retains its rotated dimensions and bounds"""
+        from app.solver.parsing import Box
+        from app.solver.geometry import BoundingBox, Posture
+        from app.solver.output import explode_blocks
+
+        # Box native dimensions: L=100, W=50, H=40
+        box = Box(
+            box_id="INDIV-01",
+            item_id="ITEM-01",
+            po_no="PO-01",
+            customer_code="CUST-1",
+            customer_sequence=1,
+            length_cm=100,
+            width_cm=50,
+            height_cm=40,
+            weight_kg=15.0,
+            this_way_up=False,
+            stacking_group=1,
+            max_load_bearing_kg=None,
+            permitted_postures=list(Posture),
+            inflated_length=100,
+            inflated_width=50,
+            inflated_height=40,
+        )
+
+        # Placed with WLH at x=200, y=50, z=0
+        # Posture WLH: length becomes width (50), width becomes length (100), height stays height (40)
+        bbox = BoundingBox(
+            min_x=200.0,
+            min_y=50.0,
+            min_z=0.0,
+            max_x=250.0,
+            max_y=150.0,
+            max_z=40.0,
+        )
+
+        exploded = explode_blocks([box], [bbox], [Posture.WLH])
+        assert len(exploded) == 1
+        placed = exploded[0]
+
+        assert placed.posture == Posture.WLH
+        assert placed.actual_length == 50.0
+        assert placed.actual_width == 100.0
+        assert placed.actual_height == 40.0
+        assert placed.x == 200.0
+        assert placed.y == 50.0
+        assert placed.z == 0.0
+
+        # Assert box strictly within bounding box
+        assert placed.x + placed.actual_length <= bbox.max_x + 1e-5
+        assert placed.y + placed.actual_width <= bbox.max_y + 1e-5
+        assert placed.z + placed.actual_height <= bbox.max_z + 1e-5
+
+    def test_explode_rotated_block_contents_stay_within_block_bbox(self):
+        """Ensure all contents of a rotated multi-box block remain strictly within the block's bounding box"""
+        from app.solver.parsing import Box
+        from app.solver.block_generation import Block
+        from app.solver.geometry import BoundingBox, Posture
+        from app.solver.output import explode_blocks
+
+        # Block containing 2 cartons stacked along X:
+        # Each carton is 50 x 40 x 30 cm
+        # Block unrotated is 100 x 40 x 30 cm
+        c1 = Box(
+            box_id="C1",
+            item_id="ITEM-A",
+            po_no="PO-A",
+            customer_code=None,
+            customer_sequence=0,
+            length_cm=50,
+            width_cm=40,
+            height_cm=30,
+            weight_kg=10,
+            this_way_up=False,
+            stacking_group=1,
+            max_load_bearing_kg=None,
+            permitted_postures=list(Posture),
+            inflated_length=50,
+            inflated_width=40,
+            inflated_height=30,
+            rel_x=0.0,
+            rel_y=0.0,
+            rel_z=0.0,
+        )
+        c2 = Box(
+            box_id="C2",
+            item_id="ITEM-A",
+            po_no="PO-A",
+            customer_code=None,
+            customer_sequence=0,
+            length_cm=50,
+            width_cm=40,
+            height_cm=30,
+            weight_kg=10,
+            this_way_up=False,
+            stacking_group=1,
+            max_load_bearing_kg=None,
+            permitted_postures=list(Posture),
+            inflated_length=50,
+            inflated_width=40,
+            inflated_height=30,
+            rel_x=50.0,
+            rel_y=0.0,
+            rel_z=0.0,
+        )
+
+        block = Block(
+            block_id="BLOCK-01",
+            boxes=[c1, c2],
+            length_cm=100.0,
+            width_cm=40.0,
+            height_cm=30.0,
+            weight_kg=20.0,
+            customer_sequence=0,
+            inflated_length=100.0,
+            inflated_width=40.0,
+            inflated_height=30.0,
+            contents=[c1, c2],
+        )
+
+        # Test with Posture.WLH:
+        # dims become: length=40, width=100, height=30
+        bbox_wlh = BoundingBox(100.0, 200.0, 0.0, 140.0, 300.0, 30.0)
+        exploded_wlh = explode_blocks([block], [bbox_wlh], [Posture.WLH])
+
+        assert len(exploded_wlh) == 2
+        for p in exploded_wlh:
+            assert p.x >= bbox_wlh.min_x - 1e-5
+            assert p.x + p.actual_length <= bbox_wlh.max_x + 1e-5
+            assert p.y >= bbox_wlh.min_y - 1e-5
+            assert p.y + p.actual_width <= bbox_wlh.max_y + 1e-5
+            assert p.z >= bbox_wlh.min_z - 1e-5
+            assert p.z + p.actual_height <= bbox_wlh.max_z + 1e-5
+
+        # Test with Posture.HWL:
+        # dims become: length=30, width=40, height=100
+        bbox_hwl = BoundingBox(10.0, 20.0, 30.0, 40.0, 60.0, 130.0)
+        exploded_hwl = explode_blocks([block], [bbox_hwl], [Posture.HWL])
+
+        assert len(exploded_hwl) == 2
+        for p in exploded_hwl:
+            assert p.x >= bbox_hwl.min_x - 1e-5
+            assert p.x + p.actual_length <= bbox_hwl.max_x + 1e-5
+            assert p.y >= bbox_hwl.min_y - 1e-5
+            assert p.y + p.actual_width <= bbox_hwl.max_y + 1e-5
+            assert p.z >= bbox_hwl.min_z - 1e-5
+            assert p.z + p.actual_height <= bbox_hwl.max_z + 1e-5
+
+    def test_pipeline_e2e_all_boxes_strictly_inside_container(self):
+        """Run complete solver pipeline and assert 100% of placed cartons are within container bounds"""
+        import pandas as pd
+        from app.solver.pipeline import run_pipeline
+
+        container_df = pd.DataFrame([{
+            "Container_Type": "20GP",
+            "Internal_Length_cm": 589.8,
+            "Internal_Width_cm": 235.2,
+            "Internal_Height_cm": 239.3,
+            "Max_Weight_kg": 28000.0,
+        }])
+
+        item_master_df = pd.DataFrame([
+            {
+                "Item_ID": "ITEM_A",
+                "Description": "Test Item A",
+                "Length_cm": 60.0,
+                "Width_cm": 40.0,
+                "Height_cm": 35.0,
+                "Weight_kg": 15.0,
+                "This_Way_Up": False,
+                "Stacking_Group": 1,
+                "Max_Load_Bearing_kg": 500.0,
+            },
+            {
+                "Item_ID": "ITEM_B",
+                "Description": "Test Item B",
+                "Length_cm": 120.0,
+                "Width_cm": 50.0,
+                "Height_cm": 40.0,
+                "Weight_kg": 30.0,
+                "This_Way_Up": False,
+                "Stacking_Group": 1,
+                "Max_Load_Bearing_kg": 800.0,
+            },
+            {
+                "Item_ID": "ITEM_C",
+                "Description": "Test Item C",
+                "Length_cm": 45.0,
+                "Width_cm": 30.0,
+                "Height_cm": 25.0,
+                "Weight_kg": 10.0,
+                "This_Way_Up": True,
+                "Stacking_Group": 2,
+                "Max_Load_Bearing_kg": 300.0,
+            },
+        ])
+
+        packing_list_df = pd.DataFrame([
+            {"PO_No": "PO1", "Item_ID": "ITEM_A", "Qty_Pcs": 150, "Qty_Cartons": 15, "Customer_Code": "CUST1"},
+            {"PO_No": "PO2", "Item_ID": "ITEM_B", "Qty_Pcs": 100, "Qty_Cartons": 10, "Customer_Code": "CUST1"},
+            {"PO_No": "PO3", "Item_ID": "ITEM_C", "Qty_Pcs": 200, "Qty_Cartons": 20, "Customer_Code": "CUST2"},
+        ])
+
+        pipeline_res = run_pipeline(packing_list_df, item_master_df, container_df)
+        placed_boxes = pipeline_res.result.placed_boxes
+        assert len(placed_boxes) > 0
+
+        L = 589.8
+        W = 235.2
+        H = 239.3
+
+        for box in placed_boxes:
+            assert box.x >= -1e-4, f"Box {box.box_id} x < 0: {box.x}"
+            assert box.y >= -1e-4, f"Box {box.box_id} y < 0: {box.y}"
+            assert box.z >= -1e-4, f"Box {box.box_id} z < 0: {box.z}"
+            assert box.x + box.actual_length <= L + 1e-4, (
+                f"Box {box.box_id} exceeds L: {box.x} + {box.actual_length} = {box.x + box.actual_length} > {L}"
+            )
+            assert box.y + box.actual_width <= W + 1e-4, (
+                f"Box {box.box_id} exceeds W: {box.y} + {box.actual_width} = {box.y + box.actual_width} > {W}"
+            )
+            assert box.z + box.actual_height <= H + 1e-4, (
+                f"Box {box.box_id} exceeds H: {box.z} + {box.actual_height} = {box.z + box.actual_height} > {H}"
+            )

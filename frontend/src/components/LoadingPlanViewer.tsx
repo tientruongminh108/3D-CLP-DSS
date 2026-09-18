@@ -306,6 +306,35 @@ export function LoadingPlanViewer({ result, onNewRun }: LoadingPlanViewerProps) 
         </button>
       </div>
 
+      {/* Applied Run Parameters (Advanced Options) */}
+      <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700">
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+            <svg className="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+            Applied Parameters:
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 bg-white px-2.5 py-1 rounded-md border border-slate-200 font-medium shadow-sm">
+              <span className="text-slate-400">Population:</span>
+              <span className="text-blue-700 font-semibold">{result.options?.population_size ?? 30}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 bg-white px-2.5 py-1 rounded-md border border-slate-200 font-medium shadow-sm">
+              <span className="text-slate-400">Generations:</span>
+              <span className="text-blue-700 font-semibold">{result.options?.generations ?? 40}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 bg-white px-2.5 py-1 rounded-md border border-slate-200 font-medium shadow-sm">
+              <span className="text-slate-400">Tolerance Gap:</span>
+              <span className="text-blue-700 font-semibold">{result.options?.tolerance_gap_cm ?? 2.0} cm</span>
+            </span>
+          </div>
+        </div>
+        <span className="text-slate-400 text-[11px] font-mono">
+          Run ID: {result.run_id?.slice(0, 8)}
+        </span>
+      </div>
+
       {/* Metrics Row */}
       <div className="stats-grid">
         <div className="stat-card">
@@ -408,23 +437,69 @@ export function LoadingPlanViewer({ result, onNewRun }: LoadingPlanViewerProps) 
             ) : (
               (() => {
                 const layer = result.layers[selectedLayer] || result.layers[0]
+                const isRearLayer = selectedLayer === 0
+                const isDoorLayer = selectedLayer === result.layers.length - 1
                 return (
                   <div className="h-full flex flex-col">
-                    <div className="p-3 bg-slate-800 text-white flex items-center justify-between border-b border-slate-700">
-                      <div className="flex items-center gap-3">
-                        <label className="text-xs font-semibold text-slate-300">Layer {selectedLayer + 1} / {result.layers.length}:</label>
-                        <input
-                          type="range"
-                          min={0}
-                          max={result.layers.length - 1}
-                          value={selectedLayer}
-                          onChange={(e) => setSelectedLayer(parseInt(e.target.value, 10))}
-                          className="w-48 cursor-pointer"
-                        />
+                    {/* Layer control bar */}
+                    <div className="p-3 bg-slate-800 text-white flex items-center justify-between gap-3 border-b border-slate-700 flex-wrap">
+                      {/* Prev / slider / Next */}
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <button
+                          className="btn btn-outline btn-sm flex-none"
+                          onClick={() => setSelectedLayer((prev) => Math.max(0, prev - 1))}
+                          disabled={selectedLayer <= 0}
+                          title="Previous layer (toward rear wall)"
+                        >
+                          ← Prev
+                        </button>
+
+                        <div className="flex flex-col flex-1 min-w-0 gap-0.5">
+                          {/* Direction legend */}
+                          <div className="flex justify-between text-[10px] text-slate-400 px-0.5">
+                            <span>🔴 Rear Wall</span>
+                            <span>🚪 Door</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={result.layers.length - 1}
+                            value={selectedLayer}
+                            onChange={(e) => setSelectedLayer(parseInt(e.target.value, 10))}
+                            className="w-full cursor-pointer"
+                          />
+                        </div>
+
+                        <button
+                          className="btn btn-outline btn-sm flex-none"
+                          onClick={() => setSelectedLayer((prev) => Math.min(result.layers.length - 1, prev + 1))}
+                          disabled={selectedLayer >= result.layers.length - 1}
+                          title="Next layer (toward door)"
+                        >
+                          Next →
+                        </button>
                       </div>
-                      <span className="text-xs text-slate-300 font-mono">
-                        Z: {layer.z_min.toFixed(0)} &ndash; {layer.z_max.toFixed(0)} cm &bull; {layer.boxes.length} cartons
-                      </span>
+
+                      {/* Layer info */}
+                      <div className="flex items-center gap-2 flex-none">
+                        {isRearLayer && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 font-semibold border border-red-700">
+                            🔴 Rear Wall
+                          </span>
+                        )}
+                        {isDoorLayer && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 font-semibold border border-blue-700">
+                            🚪 Door Layer
+                          </span>
+                        )}
+                        <span className="text-xs text-slate-300 font-mono whitespace-nowrap">
+                          Layer {selectedLayer + 1} / {result.layers.length}
+                          &nbsp;&bull;&nbsp;
+                          X: {layer.x_min.toFixed(0)} – {layer.x_max.toFixed(0)} cm
+                          &nbsp;&bull;&nbsp;
+                          {layer.boxes.length} cartons
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex-1">

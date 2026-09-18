@@ -252,8 +252,10 @@ class LayerBox(BaseModel):
 
 
 class Layer(BaseModel):
-    z_min: float
-    z_max: float
+    x_min: Optional[float] = None
+    x_max: Optional[float] = None
+    z_min: Optional[float] = None
+    z_max: Optional[float] = None
     boxes: List[LayerBox]
 
 
@@ -319,6 +321,7 @@ class RunResult(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    options: Optional[RunOptions] = None
 
 
 class RunSummary(BaseModel):

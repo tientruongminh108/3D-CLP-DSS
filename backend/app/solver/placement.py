@@ -19,6 +19,10 @@ from app.solver.block_generation import Block
 from app.solver.constraints import (
     PlacementCandidate,
     check_all_constraints,
+    check_weight_capacity,
+    check_non_overlap,
+    check_stackability,
+    check_lifo,
 )
 
 
@@ -78,51 +82,60 @@ def find_best_placement(
     Returns (PlacementResult or None, reason) where reason is 'no_space' or 'lifo_blocked'.
     """
     settings = get_settings()
+    if not check_weight_capacity(current_weight, box.weight_kg, max_weight):
+        return None, "weight_capacity"
+
     best_result = None
     best_score = -float('inf')
     saw_lifo_only_rejection = False
 
+    # Pre-calculate dimensions for all permitted postures
+    posture_specs = []
+    box_dims = Dimensions(box.length_cm, box.width_cm, box.height_cm)
+    box_inflated = Dimensions(box.inflated_length, box.inflated_width, box.inflated_height)
+    for posture in box.permitted_postures:
+        posture_specs.append((
+            posture,
+            box_dims.apply_posture(posture),
+            box_inflated.apply_posture(posture),
+        ))
+
+    c_len, c_wid, c_hgt = container_dims.length, container_dims.width, container_dims.height
+    contact_wt = settings.CONTACT_RATIO_WEIGHT
+    residual_wt = settings.RESIDUAL_VOLUME_WEIGHT
+    c_vol = container_dims.volume()
+
     # Try all extreme points with all permitted postures
     for ep in extreme_points:
-        for posture in box.permitted_postures:
-            dims = Dimensions(box.length_cm, box.width_cm, box.height_cm).apply_posture(posture)
-            inflated_dims = Dimensions(
-                box.inflated_length, box.inflated_width, box.inflated_height
-            ).apply_posture(posture)
+        ep_x, ep_y, ep_z = ep.x, ep.y, ep.z
 
-            pos = Position(ep.x, ep.y, ep.z)
-
-            candidate = PlacementCandidate(
-                position=pos,
-                posture=posture,
-                dims=inflated_dims,
-                actual_dims=dims,
-                box=box,
-            )
-
-            valid, reason = check_all_constraints(
-                candidate,
-                placed_boxes,
-                placed_boxes_data,
-                container_dims,
-                current_weight,
-                max_weight,
-                is_lcl,
-            )
-
-            if not valid:
-                if reason == "lifo":
-                    saw_lifo_only_rejection = True
+        for posture, dims, inflated_dims in posture_specs:
+            # Fast container boundary check
+            if (ep_x + inflated_dims.length > c_len or
+                ep_y + inflated_dims.width > c_wid or
+                ep_z + inflated_dims.height > c_hgt):
                 continue
 
+            pos = Position(ep_x, ep_y, ep_z)
             candidate_bbox = BoundingBox.from_position_and_dims(pos, inflated_dims)
+
+            # Fast non-overlap check
+            if not check_non_overlap(candidate_bbox, placed_boxes):
+                continue
+
+            # Stackability check
+            if not check_stackability(candidate_bbox, placed_boxes, box, placed_boxes_data):
+                continue
+
+            # LIFO check for LCL
+            if is_lcl and not check_lifo(candidate_bbox, placed_boxes, placed_boxes_data, box.customer_sequence):
+                saw_lifo_only_rejection = True
+                continue
+
             contact_ratio = calculate_contact_ratio(candidate_bbox, placed_boxes, container_dims)
             residual_vol = calculate_residual_volume(candidate_bbox, placed_boxes, container_dims)
 
-            score = (
-                    get_settings().CONTACT_RATIO_WEIGHT * contact_ratio
-                    - get_settings().RESIDUAL_VOLUME_WEIGHT * (residual_vol / container_dims.volume())
-                )
+            score = contact_wt * contact_ratio - residual_wt * (residual_vol / c_vol)
 
             # Tie-break: smaller x, then larger z
             if score > best_score or (
@@ -367,7 +380,7 @@ def decode_chromosome(
     container_dims: Dimensions,
     max_weight: float,
     is_lcl: bool,
-) -> Tuple[List[BoundingBox], List[Box], List[Tuple[Box, str]], float]:
+) -> Tuple[List[BoundingBox], List[Box], List[Tuple[Box, str]], float, List[Posture]]:
     """
     Decode a chromosome into a loading plan.
     Implements posture repair: if first-choice posture doesn't fit, try other permitted postures.
@@ -375,6 +388,7 @@ def decode_chromosome(
     """
     placed_bboxes = []
     placed_data = []
+    placed_postures = []
     unplaced = []  # List of (box, reason)
     current_weight = 0.0
 
@@ -430,6 +444,7 @@ def decode_chromosome(
                     if valid:
                         placed_bboxes.append(BoundingBox.from_position_and_dims(pos, candidate.dims))
                         placed_data.append(box)
+                        placed_postures.append(posture)
                         current_weight += box.weight_kg
                         placed = True
                         placed_at_corner = True
@@ -472,6 +487,7 @@ def decode_chromosome(
             if result:
                 placed_bboxes.append(BoundingBox.from_position_and_dims(result.position, result.dims))
                 placed_data.append(box)
+                placed_postures.append(result.posture)
                 current_weight += box.weight_kg
                 placed = True
                 # Update chromosome with working posture
@@ -515,4 +531,4 @@ def decode_chromosome(
             if not could_place_at_corner:
                 corner_phase = False
 
-    return placed_bboxes, placed_data, unplaced, current_weight
+    return placed_bboxes, placed_data, unplaced, current_weight, placed_postures

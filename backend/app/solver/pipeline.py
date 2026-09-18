@@ -38,8 +38,10 @@ def run_pipeline(
     if progress_callback:
         progress_callback("parse", 0.05, {"message": "Parsing inputs..."})
 
+    gap = float(options.tolerance_gap_cm) if options and options.tolerance_gap_cm is not None else settings.TOLERANCE_GAP_CM
+
     boxes, container_spec, preview, shipment_type = parse_and_join(
-        packing_list_df, item_master_df, container_df
+        packing_list_df, item_master_df, container_df, tolerance_gap=gap
     )
 
     if progress_callback:
@@ -101,9 +103,14 @@ def run_pipeline(
         progress_callback("decode", 0.95, {"message": "Building final solution..."})
 
     # Final decode of best individual to get the plan
-    placed_bboxes, placed_data, unplaced, current_weight = decode_chromosome(
+    placed_bboxes, placed_data, unplaced, current_weight, placed_postures = decode_chromosome(
         best_individual.chromosome, all_units, container_dims, container_spec.max_weight_kg, is_lcl
     )
+    best_individual.placed_bboxes = placed_bboxes
+    best_individual.placed_data = placed_data
+    best_individual.unplaced = unplaced
+    best_individual.current_weight = current_weight
+    best_individual.placed_postures = placed_postures
 
     # Track unplaced units by their object id (since Block is not hashable)
     unplaced_unit_ids = {id(u) for u, _ in unplaced}
@@ -143,7 +150,9 @@ def run_pipeline(
         placed_bboxes=placed_bboxes,
         placed_data=placed_data,
         placed_individual_boxes=placed_individual_boxes,
+        placed_postures=placed_postures,
         status=RunStatus.COMPLETED.value,
+        options=options,
     )
 
     if progress_callback:

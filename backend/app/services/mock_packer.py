@@ -326,4 +326,5 @@ def run_deterministic_mock_pack(
         created_at=datetime.now(timezone.utc),
         completed_at=datetime.now(timezone.utc),
         error_message=None,
+        options=options,
     )

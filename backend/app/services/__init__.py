@@ -383,33 +383,104 @@ class RunService:
 
         try:
             if progress_callback:
-                progress_callback(20, "Fetching item specifications...")
+                progress_callback(10, "Fetching item specifications...")
 
             # Fetch actual items from database
             item_ids = [row.item_id for row in run_create.packing_list.rows]
             db_items = self.db.query(Item).filter(Item.item_id.in_(item_ids)).all()
             item_lookup = {it.item_id: it for it in db_items}
 
-            if progress_callback:
-                progress_callback(60, "Generating 3D placement coordinates...")
+            # Build dataframes for mathematical optimization pipeline
+            packing_list_df = pd.DataFrame([
+                {
+                    "Item_ID": row.item_id,
+                    "PO_No": row.po_no,
+                    "Qty_Pcs": getattr(row, 'qty_pcs', None) or row.qty_cartons,
+                    "Qty_Cartons": row.qty_cartons,
+                    "Customer_Code": row.customer_code or "",
+                    "Description": row.description or (item_lookup[row.item_id].description if row.item_id in item_lookup else ""),
+                }
+                for row in run_create.packing_list.rows
+            ])
 
-            mock_result = run_deterministic_mock_pack(
-                container=container,
-                packing_rows=run_create.packing_list.rows,
-                item_lookup=item_lookup,
-                options=run_create.options,
-                run_id=run_id,
-            )
+            # Ensure all items in packing list exist in item_master_df
+            item_records = []
+            for item_id in set(item_ids):
+                it = item_lookup.get(item_id)
+                if it:
+                    item_records.append({
+                        "Item_ID": it.item_id,
+                        "Description": it.description or "",
+                        "Length_cm": float(it.length_cm),
+                        "Width_cm": float(it.width_cm),
+                        "Height_cm": float(it.height_cm),
+                        "Weight_kg": float(it.weight_kg),
+                        "This_Way_Up": bool(it.this_way_up),
+                        "Stacking_Group": int(it.stacking_group) if it.stacking_group in (1, 2) else 1,
+                        "Max_Load_Bearing_kg": float(it.max_load_bearing_kg) if it.max_load_bearing_kg else None,
+                    })
+                else:
+                    item_records.append({
+                        "Item_ID": item_id,
+                        "Description": item_id,
+                        "Length_cm": 40.0,
+                        "Width_cm": 30.0,
+                        "Height_cm": 25.0,
+                        "Weight_kg": 10.0,
+                        "This_Way_Up": True,
+                        "Stacking_Group": 1,
+                        "Max_Load_Bearing_kg": None,
+                    })
+            item_master_df = pd.DataFrame(item_records)
+
+            container_df = pd.DataFrame([
+                {
+                    "Container_Type": container.container_type,
+                    "Internal_Length_cm": float(container.internal_length_cm),
+                    "Internal_Width_cm": float(container.internal_width_cm),
+                    "Internal_Height_cm": float(container.internal_height_cm),
+                    "Max_Weight_kg": float(container.max_weight_kg),
+                }
+            ])
+
+            def solver_progress(stage: str, progress: float, data: dict):
+                if progress_callback:
+                    pct = max(10, min(99, int(progress * 100)))
+                    msg = data.get("message", f"Optimizing placement ({stage})...")
+                    progress_callback(pct, msg)
+
+            try:
+                pipeline_res = run_pipeline(
+                    packing_list_df=packing_list_df,
+                    item_master_df=item_master_df,
+                    container_df=container_df,
+                    options=run_create.options,
+                    progress_callback=solver_progress,
+                )
+                run_result = pipeline_res.result
+                run_result.run_id = run_id
+                run_result.container.id = container.id
+                run_result.options = run_create.options
+            except Exception as solver_err:
+                print(f"Warning: mathematical solver failed ({solver_err}), falling back to deterministic packer")
+                run_result = run_deterministic_mock_pack(
+                    container=container,
+                    packing_rows=run_create.packing_list.rows,
+                    item_lookup=item_lookup,
+                    options=run_create.options,
+                    run_id=run_id,
+                )
+                run_result.options = run_create.options
             
             db_run.status = RunStatus.COMPLETED.value
-            db_run.result_json = mock_result.model_dump_json()
+            db_run.result_json = run_result.model_dump_json()
             db_run.completed_at = datetime.utcnow()
             self.db.commit()
 
             if progress_callback:
                 progress_callback(100, "Optimization complete!")
 
-            return mock_result
+            return run_result
 
         except Exception as e:
             db_run.status = RunStatus.FAILED.value

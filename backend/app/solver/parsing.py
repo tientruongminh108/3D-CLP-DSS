@@ -52,7 +52,7 @@ class ContainerSpec:
     usable_height: float
 
 
-def parse_container_spec(df: pd.DataFrame) -> ContainerSpec:
+def parse_container_spec(df: pd.DataFrame, tolerance_gap: Optional[float] = None) -> ContainerSpec:
     required = [
         "Container_Type",
         "Internal_Length_cm",
@@ -79,7 +79,7 @@ def parse_container_spec(df: pd.DataFrame) -> ContainerSpec:
             raise ValidationError(f"Container {col} must be a number > 0")
 
     settings = get_settings()
-    gap = settings.TOLERANCE_GAP_CM
+    gap = tolerance_gap if tolerance_gap is not None else settings.TOLERANCE_GAP_CM
 
     return ContainerSpec(
         container_type=str(row["Container_Type"]),
@@ -256,8 +256,12 @@ def parse_and_join(
     packing_list_df: pd.DataFrame,
     item_master_df: pd.DataFrame,
     container_df: pd.DataFrame,
+    tolerance_gap: Optional[float] = None,
 ) -> Tuple[List[Box], ContainerSpec, PackingListPreview, ShipmentType]:
-    container = parse_container_spec(container_df)
+    settings = get_settings()
+    gap = tolerance_gap if tolerance_gap is not None else settings.TOLERANCE_GAP_CM
+
+    container = parse_container_spec(container_df, tolerance_gap=gap)
     items = parse_item_master(item_master_df)
 
     required_packing = ["Item_ID", "PO_No", "Qty_Pcs", "Qty_Cartons"]
@@ -293,11 +297,10 @@ def parse_and_join(
             )
         )
 
-    settings = get_settings()
     shipment_type, customer_count, customer_sequence = detect_shipment_type(packing_rows)
 
     boxes, preview_rows = expand_packing_list(
-        packing_rows, items, container, customer_sequence, settings.TOLERANCE_GAP_CM
+        packing_rows, items, container, customer_sequence, gap
     )
 
     preview = build_preview(preview_rows, shipment_type, customer_count)

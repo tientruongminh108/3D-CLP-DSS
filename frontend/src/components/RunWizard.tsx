@@ -359,18 +359,12 @@ function Step1PackingList({
 function Step2Container({
   container,
   onSelect,
-  canRun,
-  isLoading,
-  onRun,
 }: {
   container: {
     selectedId?: number
     selectedType?: string
   }
   onSelect: (id: number, type: string) => void
-  canRun: () => boolean
-  isLoading: boolean
-  onRun: () => void
 }) {
   const [containers, setContainers] = useState<Container[]>([])
   const [loadingContainers, setLoadingContainers] = useState(true)
@@ -400,7 +394,7 @@ function Step2Container({
 
   if (loadingContainers) {
     return (
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm mt-4">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
         <div className="px-5 py-4 border-b border-slate-200">
           <div className="flex items-center gap-2 mb-1">
             <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-sm font-medium">2</span>
@@ -416,7 +410,7 @@ function Step2Container({
 
   if (containersError) {
     return (
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm mt-4 p-5">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Select Target Container</h2>
@@ -432,10 +426,9 @@ function Step2Container({
 
   const selectedContainer = containers.find((item) => item.id === container.selectedId)
   const hasInvalidSelection = Boolean(container.selectedId) && !selectedContainer
-  const isReady = canRun() && Boolean(selectedContainer)
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm mt-4">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
       <div className="px-5 py-4 border-b border-slate-200">
         <div className="flex items-center gap-2 mb-1">
           <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-sm font-medium">2</span>
@@ -456,7 +449,7 @@ function Step2Container({
               const selected = containers.find((item) => item.id === id)
               if (selected) onSelect(selected.id, selected.container_type)
             }}
-            disabled={containers.length === 0 || isLoading}
+            disabled={containers.length === 0}
           >
             <option value="" disabled>
               {containers.length === 0 ? 'No containers available' : '-- Select a container --'}
@@ -479,23 +472,6 @@ function Step2Container({
             The previously selected container is no longer available. Select a container to continue.
           </p>
         )}
-
-        <div className="mt-6 pt-4 border-t border-slate-200">
-          <button
-            type="button"
-            onClick={onRun}
-            disabled={!isReady || isLoading}
-            className="w-full btn btn-primary btn-lg flex items-center justify-center gap-2 py-3.5 transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0"
-          >
-            {isLoading && (
-              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-                <path d="M12 2a10 10 0 0 1 10 10" strokeOpacity="1" />
-              </svg>
-            )}
-            {isLoading ? 'Running Optimization...' : 'Execute Loading Plan'}
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -513,6 +489,7 @@ export function RunWizard() {
     setContainerSelected,
     setPackingListPreview,
     setPackingListMode,
+    setOptions,
     setProgress,
     setResult,
     setRunning,
@@ -532,7 +509,8 @@ export function RunWizard() {
     const requestId = ++runRequestRef.current
     const preview = packingList.preview
     const selectedType = container.selectedType
-    const runOptions = options
+    // Read options fresh from store to avoid stale closure
+    const runOptions = useWizardStore.getState().options
     cancelledRef.current = false
     setRunError(null)
 
@@ -560,9 +538,9 @@ export function RunWizard() {
         },
         container_type: selectedType || '40HC',
         options: {
-          population_size: runOptions.population_size,
-          generations: runOptions.generations,
-          tolerance_gap_cm: runOptions.tolerance_gap_cm,
+          population_size: runOptions.population_size ?? 30,
+          generations: runOptions.generations ?? 40,
+          tolerance_gap_cm: runOptions.tolerance_gap_cm ?? 2.0,
         },
       }
 
@@ -650,14 +628,28 @@ export function RunWizard() {
             setPackingListPreview={setPackingListPreview}
             setPackingListMode={setPackingListMode}
           />
-          <Step3_RunOptions options={options} onChange={useWizardStore.getState().setOptions} />
           <Step2Container
             container={container}
             onSelect={setContainerSelected}
-            canRun={canRun}
-            isLoading={isLoading}
-            onRun={() => void handleRun()}
           />
+          <Step3_RunOptions options={options} onChange={setOptions} />
+
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => void handleRun()}
+              disabled={!canRun() || isLoading}
+              className="w-full btn btn-primary btn-lg flex items-center justify-center gap-2 py-3.5 transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0"
+            >
+              {isLoading && (
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                  <path d="M12 2a10 10 0 0 1 10 10" strokeOpacity="1" />
+                </svg>
+              )}
+              {isLoading ? 'Running Optimization...' : 'Execute Loading Plan'}
+            </button>
+          </div>
         </div>
       </main>
     </div>

@@ -32,25 +32,34 @@ class Block:
     @property
     def this_way_up(self) -> bool:
         """Block is This_Way_Up if any contained box requires it."""
-        return any(c.this_way_up for c in self.contents)
+        if not hasattr(self, '_cached_this_way_up'):
+            self._cached_this_way_up = any(c.this_way_up for c in self.contents)
+        return self._cached_this_way_up
 
     @property
     def permitted_postures(self) -> List[Posture]:
         """Permitted postures per Section 4.2/5.1: 2 if This_Way_Up, 6 otherwise."""
-        if self.this_way_up:
-            return [Posture.LWH, Posture.WLH]
-        return list(Posture)
+        if not hasattr(self, '_cached_permitted_postures'):
+            if self.this_way_up:
+                self._cached_permitted_postures = [Posture.LWH, Posture.WLH]
+            else:
+                self._cached_permitted_postures = list(Posture)
+        return self._cached_permitted_postures
 
     @property
     def stacking_group(self) -> int:
         """Most restrictive (smallest) stacking group among contents."""
-        return min(c.stacking_group for c in self.contents) if self.contents else 1
+        if not hasattr(self, '_cached_stacking_group'):
+            self._cached_stacking_group = min(c.stacking_group for c in self.contents) if self.contents else 1
+        return self._cached_stacking_group
 
     @property
     def max_load_bearing_kg(self) -> Optional[float]:
         """Minimum load bearing capacity among contents."""
-        limits = [c.max_load_bearing_kg for c in self.contents if c.max_load_bearing_kg is not None]
-        return min(limits) if limits else None
+        if not hasattr(self, '_cached_max_load_bearing_kg'):
+            limits = [c.max_load_bearing_kg for c in self.contents if c.max_load_bearing_kg is not None]
+            self._cached_max_load_bearing_kg = min(limits) if limits else None
+        return self._cached_max_load_bearing_kg
 
 
 def build_blocks(
@@ -273,24 +282,21 @@ def _fits_bounds(
     """
     Check if block fits within container and MAX_BLOCK_FRACTION limits.
     
-    Per Section 5.1: block cross-section (axes perpendicular to stacking axis)
-    must not exceed 40% of container dimensions. Stacking axis can grow up to
-    container length.
+    Per Section 5.1 of guide: A block must never be allowed to grow to nearly
+    the size of the container itself. The cap constrains growth, never a carton's
+    own native size:
+    effective_cap = max(container_extent * max_block_fraction, native_extent)
     """
     container_dims = [container_length, container_width, container_height]
 
     for i in range(3):
-        # Must fit in container
+        # Must physically fit in container
         if inflated_dims[i] > container_dims[i]:
             return False
 
-        # On stacking axis: no fraction limit (can grow to container length)
-        # On cross-section axes: enforce MAX_BLOCK_FRACTION
-        if stacking_axis is not None and i == stacking_axis:
-            continue  # No fraction limit on stacking axis
-        
-        limit = container_dims[i] * max_frac
-        if inflated_dims[i] > limit:
+        native = native_inflated[i] if native_inflated else dims[i]
+        effective_cap = max(container_dims[i] * max_frac, native)
+        if inflated_dims[i] > effective_cap:
             return False
 
     return True
@@ -469,15 +475,22 @@ def _combine_similar_blocks(
             b2 = remaining.pop(0)
 
             for axis in range(3):
-                new_dims = [b1.length_cm, b1.width_cm, b1.height_cm]
-                new_inflated = [b1.inflated_length, b1.inflated_width, b1.inflated_height]
+                other_axes = [k for k in range(3) if k != axis]
+                b1_dims = [b1.length_cm, b1.width_cm, b1.height_cm]
+                b1_infl = [b1.inflated_length, b1.inflated_width, b1.inflated_height]
+                b2_dims = [b2.length_cm, b2.width_cm, b2.height_cm]
+                b2_infl = [b2.inflated_length, b2.inflated_width, b2.inflated_height]
 
-                new_dims[axis] += b2.length_cm if axis == 0 else (
-                    b2.width_cm if axis == 1 else b2.height_cm
-                )
-                new_inflated[axis] += b2.inflated_length if axis == 0 else (
-                    b2.inflated_width if axis == 1 else b2.inflated_height
-                )
+                new_dims = [0.0, 0.0, 0.0]
+                new_inflated = [0.0, 0.0, 0.0]
+                new_dims[axis] = b1_dims[axis] + b2_dims[axis]
+                new_inflated[axis] = b1_infl[axis] + b2_infl[axis]
+                for o in other_axes:
+                    new_dims[o] = max(b1_dims[o], b2_dims[o])
+                    new_inflated[o] = max(b1_infl[o], b2_infl[o])
+
+                native_d = [max(b1_dims[k], b2_dims[k]) for k in range(3)]
+                native_i = [max(b1_infl[k], b2_infl[k]) for k in range(3)]
 
                 if _fits_bounds(
                     new_dims,
@@ -486,8 +499,8 @@ def _combine_similar_blocks(
                     container_width,
                     container_height,
                     max_frac,
-                    [b1.length_cm, b1.width_cm, b1.height_cm],
-                    [b1.inflated_length, b1.inflated_width, b1.inflated_height],
+                    native_d,
+                    native_i,
                     stacking_axis=axis,
                 ):
                     total_boxes = len(b1.contents) + len(b2.contents)

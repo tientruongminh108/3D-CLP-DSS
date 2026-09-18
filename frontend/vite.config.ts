@@ -13,8 +13,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://backend:8000',
+        target: process.env.BACKEND_URL || 'http://backend:8000',
         changeOrigin: true,
+        timeout: 600000,
+        proxyTimeout: 600000,
       },
     },
   },

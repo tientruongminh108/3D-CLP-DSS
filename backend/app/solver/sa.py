@@ -5,7 +5,6 @@ from typing import List, Callable, Optional, Tuple, TYPE_CHECKING
 from app.config import get_settings
 from app.solver.parsing import Box
 from app.solver.geometry import Dimensions
-from app.solver.placement import decode_chromosome
 from app.solver.fitness import calculate_fitness, FitnessResult
 
 if TYPE_CHECKING:
@@ -50,7 +49,10 @@ def run_simulated_annealing(
     min_temperature = settings.SA_MIN_TEMP
     cooling_rate = settings.SA_COOLING_RATE
 
-    while temperature > min_temperature:
+    steps = 0
+    max_steps = 15
+    while temperature > min_temperature and steps < max_steps:
+        steps += 1
         neighbor = generate_neighbor(current, boxes_sorted)
         from app.solver.ga import evaluate_individual
         evaluate_individual(neighbor, boxes_sorted, container_dims, container_dims.length * container_dims.width * container_dims.height * 0.001, is_lcl)

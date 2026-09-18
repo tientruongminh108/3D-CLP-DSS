@@ -221,11 +221,12 @@ export interface RunResult {
   created_at: string
   completed_at?: string
   error_message?: string
+  options?: RunOptions
 }
 
 export interface Layer {
-  z_min: number
-  z_max: number
+  x_min: number
+  x_max: number
   boxes: LayerBox[]
 }
 

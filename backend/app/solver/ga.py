@@ -19,6 +19,7 @@ class Individual:
     placed_data: List = None
     unplaced: List = None
     current_weight: float = 0.0
+    placed_postures: Optional[List[Posture]] = None
 
 
 def create_individual(units: List[Box]) -> Individual:
@@ -39,7 +40,7 @@ def evaluate_individual(
     max_weight: float,
     is_lcl: bool,
 ) -> Individual:
-    placed_bboxes, placed_data, unplaced, current_weight = decode_chromosome(
+    placed_bboxes, placed_data, unplaced, current_weight, placed_postures = decode_chromosome(
         individual.chromosome, units, container_dims, max_weight, is_lcl
     )
     fitness_result = calculate_fitness(
@@ -50,6 +51,7 @@ def evaluate_individual(
     individual.placed_data = placed_data
     individual.unplaced = unplaced
     individual.current_weight = current_weight
+    individual.placed_postures = placed_postures
     return individual
 
 
@@ -81,7 +83,10 @@ def crossover(parent1: Individual, parent2: Individual, crossover_probability: f
         return copy.deepcopy(parent1), copy.deepcopy(parent2)
 
     length = len(parent1.chromosome)
-    point_a, point_b = sorted(random.sample(range(1, length), 2))
+    if length == 2:
+        point_a, point_b = 1, 2
+    else:
+        point_a, point_b = sorted(random.sample(range(1, length), 2))
 
     child1_chrom = (
         parent1.chromosome[:point_a] +
@@ -185,8 +190,9 @@ def genetic_algorithm(
                 best_individual = sa_individual
                 best_fitness = sa_fitness
 
-        # Early stopping
-        if stagnant_generations >= patience:
+        # Early stopping: if all units are placed and stagnant for 3 generations, or if stagnant for patience
+        all_placed = bool(best_individual.placed_data and len(best_individual.placed_data) == len(units))
+        if (all_placed and stagnant_generations >= 3) or stagnant_generations >= patience:
             break
 
         # Selection and reproduction

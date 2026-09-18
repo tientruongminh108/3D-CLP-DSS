@@ -25,7 +25,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000,
+  timeout: 600000, // 10 minutes
 })
 
 api.interceptors.request.use(
@@ -68,8 +68,10 @@ api.interceptors.response.use(
       }
       const errors = (data as any)?.errors
       throw new ApiError(message, status, data, errors)
+    } else if (error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout')) {
+      throw new ApiError('Request timed out while calculating loading plan. You can reduce generations/population size or increase timeout.', 408)
     } else if (error.request) {
-      throw new ApiError('Network error - unable to reach server', 0)
+      throw new ApiError('Network error - unable to reach server. Please check backend status.', 0)
     } else {
       throw new ApiError(error.message, 0)
     }
