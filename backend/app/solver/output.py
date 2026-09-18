@@ -360,8 +360,10 @@ def build_run_result(
         "#f97316",  # Orange
     ]
 
-    # Assign sequential step_index and color to all placed boxes
-    all_placed_boxes.sort(key=lambda b: (b.customer_sequence, b.z, b.x, b.y))
+    # Assign sequential step_index and color to all placed boxes.
+    # Sort rear-to-door (descending x) within each customer sequence so that
+    # Step 1 begins at the rear wall, matching the loading strategy.
+    all_placed_boxes.sort(key=lambda b: (b.customer_sequence, b.z, -b.x, b.y))
     for idx, b in enumerate(all_placed_boxes):
         b.step_index = idx + 1
         color_idx = (b.customer_sequence - 1) % len(COLOR_PALETTE)

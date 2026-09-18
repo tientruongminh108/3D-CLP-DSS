@@ -28,7 +28,11 @@ export function UnplacedCartons({ unplacedCartons }: UnplacedCartonsProps) {
   return (
     <div className="unplaced-section">
       <div className="unplaced-title">
-        <span>⚠</span>
+        <span aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{color:'#f59e0b',verticalAlign:'middle'}}>
+            <path d="M8 1.333a.667.667 0 0 1 .577.334l6.667 11.556A.667.667 0 0 1 14.667 14H1.333a.667.667 0 0 1-.577-.777L7.423 1.667A.667.667 0 0 1 8 1.333zm0 1.38L2.163 13.333h11.674L8 2.713zM7.333 10V7.333a.667.667 0 0 1 1.334 0V10a.667.667 0 1 1-1.334 0zm.667 1.667a.667.667 0 1 1 0 1.333.667.667 0 0 1 0-1.333z"/>
+          </svg>
+        </span>
         <span>Unplaced Cartons</span>
         <span className="unplaced-count">{unplacedCartons.length}</span>
       </div>

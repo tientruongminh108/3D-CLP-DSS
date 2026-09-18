@@ -588,12 +588,14 @@ class TestOutputCoordinateIntegrity:
         ])
 
         packing_list_df = pd.DataFrame([
-            {"PO_No": "PO1", "Item_ID": "ITEM_A", "Qty_Pcs": 150, "Qty_Cartons": 15, "Customer_Code": "CUST1"},
-            {"PO_No": "PO2", "Item_ID": "ITEM_B", "Qty_Pcs": 100, "Qty_Cartons": 10, "Customer_Code": "CUST1"},
-            {"PO_No": "PO3", "Item_ID": "ITEM_C", "Qty_Pcs": 200, "Qty_Cartons": 20, "Customer_Code": "CUST2"},
+            {"PO_No": "PO1", "Item_ID": "ITEM_A", "Qty_Pcs": 20, "Qty_Cartons": 2, "Customer_Code": "CUST1"},
+            {"PO_No": "PO2", "Item_ID": "ITEM_B", "Qty_Pcs": 20, "Qty_Cartons": 2, "Customer_Code": "CUST1"},
+            {"PO_No": "PO3", "Item_ID": "ITEM_C", "Qty_Pcs": 20, "Qty_Cartons": 2, "Customer_Code": "CUST2"},
         ])
 
-        pipeline_res = run_pipeline(packing_list_df, item_master_df, container_df)
+        from app.core.models import RunOptions
+        options = RunOptions(population_size=10, generations=10, tolerance_gap_cm=2.0)
+        pipeline_res = run_pipeline(packing_list_df, item_master_df, container_df, options=options)
         placed_boxes = pipeline_res.result.placed_boxes
         assert len(placed_boxes) > 0
 

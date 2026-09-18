@@ -35,33 +35,43 @@ class PlacementResult:
     score: float
 
 
-def corner_points_for(box: Box, box_dims: Dimensions, container_dims: Dimensions, 
+def corner_points_for(box: Box, box_dims: Dimensions, container_dims: Dimensions,
                       shipment_type: str, last_customer_sequence: int) -> List[ExtremePoint]:
     """
-    Compute the 4 bottom corner anchors for a box under its current posture.
+    Compute the 4 bottom corner anchors for a box in its current posture.
+
+    **Rear corners are listed first** so that the greedy/GA algorithm naturally
+    fills from the rear wall toward the door (rear-to-door loading strategy).
+
+    box_dims should be the *inflated* dimensions (with tolerance gap applied)
+    so that the boundary filter at the end is conservative and does not
+    silently reject valid rear-wall placements.
+
     For LCL, the two deep corners are only offered to the last customer's cargo.
     """
     dx, dy, dz = box_dims.length, box_dims.width, box_dims.height
 
     corners = []
-    # Door corner, left wall (x=0, y=0)
-    corners.append(ExtremePoint(0, 0, 0))
-    # Door corner, right wall (x=0, y=W - dy)
-    corners.append(ExtremePoint(0, container_dims.width - dy, 0))
-
-    # Deep corners: only for FCL or last customer in LCL
+    # --- Deep / rear-wall corners first ---
     if shipment_type == "FCL" or box.customer_sequence == last_customer_sequence:
-        # Deepest corner, left wall (x=L - dx, y=0)
+        # Deepest corner, left wall (x = L - dx, y = 0)
         corners.append(ExtremePoint(container_dims.length - dx, 0, 0))
-        # Deepest corner, right wall (x=L - dx, y=W - dy)
+        # Deepest corner, right wall (x = L - dx, y = W - dy)
         corners.append(ExtremePoint(container_dims.length - dx, container_dims.width - dy, 0))
+
+    # --- Door corners second ---
+    # Door corner, left wall (x = 0, y = 0)
+    corners.append(ExtremePoint(0, 0, 0))
+    # Door corner, right wall (x = 0, y = W - dy)
+    corners.append(ExtremePoint(0, container_dims.width - dy, 0))
 
     # Filter out corners that would place box outside container (large boxes)
     valid = []
     for c in corners:
-        if (c.x + dx <= container_dims.length and 
-            c.y + dy <= container_dims.width and 
-            c.z + dz <= container_dims.height):
+        if (c.x >= -1e-6 and c.y >= -1e-6 and c.z >= -1e-6 and
+                c.x + dx <= container_dims.length + 1e-6 and
+                c.y + dy <= container_dims.width + 1e-6 and
+                c.z + dz <= container_dims.height + 1e-6):
             valid.append(c)
     return valid
 
@@ -137,10 +147,10 @@ def find_best_placement(
 
             score = contact_wt * contact_ratio - residual_wt * (residual_vol / c_vol)
 
-            # Tie-break: smaller x, then larger z
+            # Tie-break: prefer rear-most (larger x), then higher z
             if score > best_score or (
                 abs(score - best_score) < 1e-9 and (
-                    pos.x < best_result.position.x or
+                    pos.x > best_result.position.x or
                     (abs(pos.x - best_result.position.x) < 1e-9 and pos.z > best_result.position.z)
                 )
             ):
@@ -174,8 +184,9 @@ def place_boxes_greedy(
     unplaced = []  # List of (box, reason)
     current_weight = 0.0
 
-    # Initial extreme points: just the door corner
-    extreme_points = [ExtremePoint(0, 0, 0)]
+    # Initial extreme points: seed the rear-wall corner (x=L) so the first
+    # box placed is anchored to the rear wall, not the door.
+    extreme_points = [ExtremePoint(container_dims.length, 0, 0)]
     corner_phase = True
 
     for box in boxes:
@@ -187,7 +198,9 @@ def place_boxes_greedy(
             
             for posture in box.permitted_postures:
                 dims = box_dims.apply_posture(posture)
-                corners = corner_points_for(box, dims, container_dims, "LCL" if is_lcl else "FCL", last_customer_sequence)
+                # Pass inflated dims so rear-corner boundary check uses padded size
+                inflated_dims = Dimensions(box.inflated_length, box.inflated_width, box.inflated_height).apply_posture(posture)
+                corners = corner_points_for(box, inflated_dims, container_dims, "LCL" if is_lcl else "FCL", last_customer_sequence)
                 
                 for corner in corners:
                     pos = Position(corner.x, corner.y, corner.z)
@@ -392,7 +405,9 @@ def decode_chromosome(
     unplaced = []  # List of (box, reason)
     current_weight = 0.0
 
-    extreme_points = [ExtremePoint(0, 0, 0)]
+    # Seed initial extreme points with rear-wall corner; this ensures that
+    # when the container is empty the first box targets the rear wall.
+    extreme_points = [ExtremePoint(container_dims.length, 0, 0)]
     corner_phase = True
     last_customer_sequence = max(u.customer_sequence for u in units) if units else 0
 
@@ -417,7 +432,10 @@ def decode_chromosome(
             # If still in corner phase, try corner points first
             if corner_phase:
                 box_dims = Dimensions(box.length_cm, box.width_cm, box.height_cm).apply_posture(posture)
-                corners = corner_points_for(box, box_dims, container_dims, "LCL" if is_lcl else "FCL", last_customer_sequence)
+                # Use inflated dims for corner boundary check so rear corners are not
+                # falsely rejected when L - inflated_dx maps to a valid non-negative x.
+                inflated_dims = Dimensions(box.inflated_length, box.inflated_width, box.inflated_height).apply_posture(posture)
+                corners = corner_points_for(box, inflated_dims, container_dims, "LCL" if is_lcl else "FCL", last_customer_sequence)
                 
                 placed_at_corner = False
                 

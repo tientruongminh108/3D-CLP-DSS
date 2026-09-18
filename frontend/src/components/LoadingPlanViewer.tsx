@@ -56,7 +56,7 @@ function ContainerWireframe({ container }: { container: Container }) {
       </mesh>
       <Html position={[-L / 2 - 10, H + 12, 0]} center>
         <div style={{ fontSize: 11, color: '#2563eb', fontWeight: 700, whiteSpace: 'nowrap', background: 'rgba(255,255,255,0.85)', padding: '2px 6px', borderRadius: 4, border: '1px solid #93c5fd' }}>
-          🚪 CONTAINER DOOR
+          CONTAINER DOOR
         </div>
       </Html>
 
@@ -457,8 +457,8 @@ export function LoadingPlanViewer({ result, onNewRun }: LoadingPlanViewerProps) 
                         <div className="flex flex-col flex-1 min-w-0 gap-0.5">
                           {/* Direction legend */}
                           <div className="flex justify-between text-[10px] text-slate-400 px-0.5">
-                            <span>🔴 Rear Wall</span>
-                            <span>🚪 Door</span>
+                            <span><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'#ef4444',marginRight:4}}/>Rear Wall</span>
+                            <span>Door<span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'#3b82f6',marginLeft:4}}/></span>
                           </div>
                           <input
                             type="range"
@@ -484,12 +484,12 @@ export function LoadingPlanViewer({ result, onNewRun }: LoadingPlanViewerProps) 
                       <div className="flex items-center gap-2 flex-none">
                         {isRearLayer && (
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 font-semibold border border-red-700">
-                            🔴 Rear Wall
+                             Rear Wall
                           </span>
                         )}
                         {isDoorLayer && (
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 font-semibold border border-blue-700">
-                            🚪 Door Layer
+                             Door Layer
                           </span>
                         )}
                         <span className="text-xs text-slate-300 font-mono whitespace-nowrap">

@@ -163,6 +163,22 @@ def detect_shipment_type(packing_rows: List[PackingListRow]) -> Tuple[ShipmentTy
     return ShipmentType.LCL, len(unique_customers), customer_sequence
 
 
+def _check_item_fits_container(
+    item: "ItemBase",
+    container: "ContainerSpec",
+    permitted: List,
+) -> bool:
+    """Return True if the item fits inside the container's usable interior in at least one posture."""
+    from app.solver.geometry import Dimensions as Dims
+    base = Dims(item.length_cm, item.width_cm, item.height_cm)
+    cl, cw, ch = container.usable_length, container.usable_width, container.usable_height
+    for posture in permitted:
+        d = base.apply_posture(posture)
+        if d.length <= cl and d.width <= cw and d.height <= ch:
+            return True
+    return False
+
+
 def expand_packing_list(
     packing_rows: List[PackingListRow],
     items: Dict[str, ItemBase],
@@ -172,6 +188,28 @@ def expand_packing_list(
 ) -> Tuple[List[Box], List[PackingListPreviewRow]]:
     boxes = []
     preview_rows = []
+
+    # --- Issue 3: Fast-fail oversized item validation ---
+    # Check each distinct item that appears in the packing list before expanding.
+    seen_item_ids: set = set()
+    for row_idx, row in enumerate(packing_rows):
+        item = items.get(row.item_id)
+        if not item:
+            raise ValidationError(
+                f"Row {row_idx + 1}: Item_ID '{row.item_id}' not found in Item Master. "
+                "Please register this item in Data Management > Items first."
+            )
+        if row.item_id not in seen_item_ids:
+            seen_item_ids.add(row.item_id)
+            permitted = get_permitted_postures(item.this_way_up, item.max_load_bearing_kg, item.weight_kg)
+            if not _check_item_fits_container(item, container, permitted):
+                raise ValidationError(
+                    f"Item_ID '{item.item_id}' "
+                    f"({item.length_cm:g}x{item.width_cm:g}x{item.height_cm:g} cm) "
+                    f"does not fit inside the container's usable interior "
+                    f"({container.usable_length:g}x{container.usable_width:g}x{container.usable_height:g} cm) "
+                    f"in any orientation. Check the item's dimensions or the container selection."
+                )
 
     box_counter = 0
     for row_idx, row in enumerate(packing_rows):

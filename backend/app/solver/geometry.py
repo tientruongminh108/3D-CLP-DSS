@@ -148,8 +148,10 @@ def generate_extreme_points(
     """
     raw_points: set = set()
 
-    # Origin is always a valid anchor (container floor at door corner).
+    # Seed both the door corner (x=0) and the rear-wall corner (x=L) so that
+    # the algorithm always has a rear anchor when the container is empty.
     raw_points.add(ExtremePoint(0, 0, 0))
+    raw_points.add(ExtremePoint(container_dims.length, 0, 0))
 
     for box in placed_boxes:
         # Face beyond box along X (right-hand side in length direction)
@@ -178,7 +180,12 @@ def generate_extreme_points(
 
 
 def sort_extreme_points(points: List[ExtremePoint]) -> List[ExtremePoint]:
-    return sorted(points, key=lambda p: (p.z, p.y, p.x))
+    """Sort anchor points: bottom-up (ascending Z), rear-most first (descending X), then Y.
+
+    Descending X ensures the solver tries to fill from the rear wall first and
+    only moves toward the door once the rear region is saturated.
+    """
+    return sorted(points, key=lambda p: (p.z, -p.x, p.y))
 
 
 def calculate_contact_ratio(

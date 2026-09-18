@@ -24,12 +24,22 @@ def initial_sort(boxes: List[Box], shipment_type: str) -> List[Box]:
 def resort_after_blocks(units: List[Block], shipment_type: str) -> List[Block]:
     """Re-sort blocks after block generation per Section 5.5.
     Blocks carry the most restrictive stacking_group, so we don't need Stacking_Group as a separate key.
-    Sort: Customer_Sequence asc, Volume desc, Weight desc."""
+
+    For FCL: Sort by Volume desc, Weight desc.
+    For LCL: Sort by Customer_Sequence DESC first (last-to-unload goes deepest/rear),
+             then Volume desc, Weight desc within the same customer.
+
+    Descending customer_sequence for LCL means the algorithm places the
+    last customer's cargo first (deepest in the container, nearest rear wall),
+    which, combined with the LIFO constraint checker in constraints.py, prevents
+    later-sequence cargo from blocking earlier-sequence cargo at the door.
+    """
     def sort_key(unit):
         keys = []
 
         if shipment_type == "LCL":
-            keys.append(unit.customer_sequence)
+            # Descending: last customer (highest sequence) placed first/deepest.
+            keys.append(-unit.customer_sequence)
 
         keys.append(-unit.length_cm * unit.width_cm * unit.height_cm)
         keys.append(-unit.weight_kg)

@@ -122,3 +122,75 @@ def test_initial_sort_lcl():
     sorted_boxes = initial_sort(boxes, "LCL")
     assert sorted_boxes[0].customer_sequence == 1  # CUST-A first
     assert sorted_boxes[1].customer_sequence == 2  # CUST-B second
+
+
+# ---------------------------------------------------------------------------
+# Issue 3 — Dimension validation in expand_packing_list
+# ---------------------------------------------------------------------------
+
+def _make_container_spec(length=1200, width=235, height=270):
+    """Helper: build a minimal ContainerSpec for tests."""
+    import pandas as pd
+    from app.solver.parsing import parse_container_spec
+    df = pd.DataFrame([{
+        "Container_Type": "40HC",
+        "Internal_Length_cm": float(length),
+        "Internal_Width_cm": float(width),
+        "Internal_Height_cm": float(height),
+        "Max_Weight_kg": 28000,
+    }])
+    return parse_container_spec(df)
+
+
+def _make_item(length, width, height, this_way_up=False):
+    """Helper: build a minimal ItemBase dict for parse_item_master."""
+    import pandas as pd
+    from app.solver.parsing import parse_item_master
+    df = pd.DataFrame([{
+        "Item_ID": "TST-001",
+        "Description": "Test item",
+        "Length_cm": float(length),
+        "Width_cm": float(width),
+        "Height_cm": float(height),
+        "Weight_kg": 10.0,
+        "This_Way_Up": this_way_up,
+        "Stacking_Group": 1,
+        "Max_Load_Bearing_kg": 100.0,
+    }])
+    return parse_item_master(df)
+
+
+def test_PRS_10_oversized_item_raises_validation_error():
+    """An item that cannot fit in any orientation should raise ValidationError immediately."""
+    from app.core.models import PackingListRow
+    from app.solver.parsing import expand_packing_list
+    from app.core.exceptions import ValidationError
+
+    # Container: 1200 x 235 x 270 cm. Item: 1500 x 100 x 100 cm — too long in every rotation.
+    container = _make_container_spec(1200, 235, 270)
+    items = _make_item(1500, 100, 100, this_way_up=False)  # all rotations allowed
+
+    packing_rows = [
+        PackingListRow(item_id="TST-001", po_no="PO-1", customer_code=None,
+                       description="", qty_pcs=1, qty_cartons=1),
+    ]
+
+    with pytest.raises(ValidationError, match="does not fit inside the container"):
+        expand_packing_list(packing_rows, items, container, {}, tolerance_gap=2.0)
+
+
+def test_PRS_11_normally_sized_item_passes_validation():
+    """An item that fits in at least one orientation should not raise."""
+    from app.core.models import PackingListRow
+    from app.solver.parsing import expand_packing_list
+
+    container = _make_container_spec(1200, 235, 270)
+    items = _make_item(100, 80, 60, this_way_up=False)
+
+    packing_rows = [
+        PackingListRow(item_id="TST-001", po_no="PO-1", customer_code=None,
+                       description="", qty_pcs=1, qty_cartons=1),
+    ]
+
+    boxes, _ = expand_packing_list(packing_rows, items, container, {}, tolerance_gap=2.0)
+    assert len(boxes) == 1
