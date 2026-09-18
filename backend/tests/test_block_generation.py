@@ -29,7 +29,8 @@ def create_test_boxes(count: int, length=100, width=50, height=40, weight=20, cu
 
 
 def test_build_blocks_simple():
-    boxes = create_test_boxes(4)
+    # Length=50 so 4 boxes (inflated 52*4=208cm) fit within 1200*0.25=300cm cap
+    boxes = create_test_boxes(4, length=50, width=50, height=40)
     blocks, leftover = build_blocks(boxes, 1200, 235, 270)
 
     assert len(blocks) > 0

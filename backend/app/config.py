@@ -31,8 +31,8 @@ class Settings(BaseSettings):
 
     # Block Generation (Section 5.1)
     MIN_BLOCK_FILL_RATIO: float = 0.98
-    MAX_BLOCK_FRACTION: float = 0.6  # Relaxed for GA search
-    MAX_BLOCK_FRACTION_REPORT: float = 0.4  # Strict for final report
+    MAX_BLOCK_FRACTION: float = 0.25  # Tuned for GA search (replaces 0.6 to prevent oversized blocks)
+    MAX_BLOCK_FRACTION_REPORT: float = 0.4  # Strict for final report (>= search cap)
     SIMILAR_SIZE_TOLERANCE: float = 0.1
 
     # Placement Strategy (Section 5.2)

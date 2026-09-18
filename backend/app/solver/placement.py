@@ -114,6 +114,10 @@ def find_best_placement(
     contact_wt = settings.CONTACT_RATIO_WEIGHT
     residual_wt = settings.RESIDUAL_VOLUME_WEIGHT
     c_vol = container_dims.volume()
+    occupied_vol = sum(
+        (b.max_x - b.min_x) * (b.max_y - b.min_y) * (b.max_z - b.min_z)
+        for b in placed_boxes
+    )
 
     # Try all extreme points with all permitted postures
     for ep in extreme_points:
@@ -143,7 +147,7 @@ def find_best_placement(
                 continue
 
             contact_ratio = calculate_contact_ratio(candidate_bbox, placed_boxes, container_dims)
-            residual_vol = calculate_residual_volume(candidate_bbox, placed_boxes, container_dims)
+            residual_vol = calculate_residual_volume(candidate_bbox, placed_boxes, container_dims, occupied_vol)
 
             score = contact_wt * contact_ratio - residual_wt * (residual_vol / c_vol)
 
@@ -184,9 +188,9 @@ def place_boxes_greedy(
     unplaced = []  # List of (box, reason)
     current_weight = 0.0
 
-    # Initial extreme points: seed the rear-wall corner (x=L) so the first
-    # box placed is anchored to the rear wall, not the door.
-    extreme_points = [ExtremePoint(container_dims.length, 0, 0)]
+    # Seed initial extreme points with origin (0, 0, 0); real rear anchors
+    # depend on box dimensions and come from corner_points_for during corner_phase.
+    extreme_points = [ExtremePoint(0, 0, 0)]
     corner_phase = True
 
     for box in boxes:
@@ -405,9 +409,9 @@ def decode_chromosome(
     unplaced = []  # List of (box, reason)
     current_weight = 0.0
 
-    # Seed initial extreme points with rear-wall corner; this ensures that
-    # when the container is empty the first box targets the rear wall.
-    extreme_points = [ExtremePoint(container_dims.length, 0, 0)]
+    # Seed initial extreme points with origin (0, 0, 0); real rear anchors
+    # depend on box dimensions and come from corner_points_for during corner_phase.
+    extreme_points = [ExtremePoint(0, 0, 0)]
     corner_phase = True
     last_customer_sequence = max(u.customer_sequence for u in units) if units else 0
 
@@ -482,6 +486,10 @@ def decode_chromosome(
                         extreme_points.append(projected)
                     extreme_points = prune_dominated_extreme_points(extreme_points)
                     break  # Break out of posture loop
+                else:
+                    # This posture didn't fit at any corner. Stay in corner_phase
+                    # and try the next posture's corners before giving up on corner-phase entirely.
+                    continue
             
             if placed:
                 break  # Break out of posture loop
@@ -511,23 +519,25 @@ def decode_chromosome(
                 # Update chromosome with working posture
                 chromosome[i] = permitted.index(result.posture)
                 break  # Break out of posture loop
-        
-        if not placed:
-            unplaced.append((box, 'no_space'))
+            else:
+                # find_best_placement already tested all permitted postures against all extreme points.
+                # If it failed, no posture can fit at any current extreme point.
+                break
         
         # Check if corner phase should end - only when box fails at ALL corners
-        if corner_phase:
+        if corner_phase and not placed:
             # Test if this box could be placed at any corner with any posture
             could_place_at_corner = False
             for test_posture in box.permitted_postures:
                 test_dims = Dimensions(box.length_cm, box.width_cm, box.height_cm).apply_posture(test_posture)
-                test_corners = corner_points_for(box, test_dims, container_dims, "LCL" if is_lcl else "FCL", last_customer_sequence)
+                test_inflated = Dimensions(box.inflated_length, box.inflated_width, box.inflated_height).apply_posture(test_posture)
+                test_corners = corner_points_for(box, test_inflated, container_dims, "LCL" if is_lcl else "FCL", last_customer_sequence)
                 for test_corner in test_corners:
                     test_pos = Position(test_corner.x, test_corner.y, test_corner.z)
                     test_candidate = PlacementCandidate(
                         position=test_pos,
                         posture=test_posture,
-                        dims=Dimensions(box.inflated_length, box.inflated_width, box.inflated_height).apply_posture(test_posture),
+                        dims=test_inflated,
                         actual_dims=test_dims,
                         box=box,
                     )
@@ -548,5 +558,30 @@ def decode_chromosome(
             
             if not could_place_at_corner:
                 corner_phase = False
+                # Corner phase ended because this box cannot fit at any corner.
+                # Attempt general placement via extreme points so this box is not skipped.
+                extreme_points = generate_extreme_points(placed_bboxes, container_dims, 0)
+                extreme_points = sort_extreme_points(extreme_points)
+                result, reason = find_best_placement(
+                    box,
+                    placed_bboxes,
+                    placed_data,
+                    container_dims,
+                    current_weight,
+                    max_weight,
+                    is_lcl,
+                    extreme_points,
+                    last_customer_sequence,
+                )
+                if result:
+                    placed_bboxes.append(BoundingBox.from_position_and_dims(result.position, result.dims))
+                    placed_data.append(box)
+                    placed_postures.append(result.posture)
+                    current_weight += box.weight_kg
+                    placed = True
+                    chromosome[i] = permitted.index(result.posture)
+
+        if not placed:
+            unplaced.append((box, 'no_space'))
 
     return placed_bboxes, placed_data, unplaced, current_weight, placed_postures
