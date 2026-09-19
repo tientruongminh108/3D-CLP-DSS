@@ -204,8 +204,10 @@ def calculate_contact_ratio(
         candidate_box.max_y - candidate_box.min_y
     )
 
+    c_min_z = candidate_box.min_z
     for box in placed_boxes:
-        contact_area += box.contact_area(candidate_box)
+        if abs(box.max_z - c_min_z) < 1e-6:
+            contact_area += box.contact_area(candidate_box)
 
     if footprint_area == 0:
         return 0.0
@@ -283,8 +285,10 @@ def check_support_ratio(
         candidate_box.max_y - candidate_box.min_y
     )
 
+    c_min_z = candidate_box.min_z
     for box in placed_boxes:
-        contact_area += box.contact_area(candidate_box)
+        if abs(box.max_z - c_min_z) < 1e-6:
+            contact_area += box.contact_area(candidate_box)
 
     if footprint_area == 0:
         return False
@@ -342,17 +346,15 @@ def project_point_down(
     project it down (decreasing z) until it lands on a box top face or container floor.
     """
     x, y, z = point.x, point.y, point.z
+    if z <= 1e-6:
+        return point
 
-    # Check if already supported at current height
-    for box in placed_boxes:
-        if box.supports(BoundingBox.from_position_and_dims(Position(x, y, z), Dimensions(0.001, 0.001, 0.001))):
-            return point
-
-    # Find highest top face below z that covers (x, y)
     candidate_z = 0.0
     for box in placed_boxes:
-        if box.min_z < z and box.max_x > x and box.min_x <= x and box.max_y > y and box.min_y <= y:
-            if box.max_z > candidate_z:
+        if box.min_x <= x < box.max_x and box.min_y <= y < box.max_y:
+            if abs(box.max_z - z) < 1e-6:
+                return point
+            if box.max_z < z and box.max_z > candidate_z:
                 candidate_z = box.max_z
 
     return ExtremePoint(x, y, candidate_z)

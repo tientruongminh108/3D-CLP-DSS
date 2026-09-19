@@ -39,8 +39,18 @@ def check_non_overlap(
     candidate: BoundingBox,
     placed_boxes: List[BoundingBox],
 ) -> bool:
-    for placed in placed_boxes:
-        if candidate.overlaps(placed):
+    c_min_x, c_max_x = candidate.min_x, candidate.max_x
+    c_min_y, c_max_y = candidate.min_y, candidate.max_y
+    c_min_z, c_max_z = candidate.min_z, candidate.max_z
+    for placed in reversed(placed_boxes):
+        if not (
+            c_max_x <= placed.min_x
+            or placed.max_x <= c_min_x
+            or c_max_y <= placed.min_y
+            or placed.max_y <= c_min_y
+            or c_max_z <= placed.min_z
+            or placed.max_z <= c_min_z
+        ):
             return False
     return True
 
@@ -75,8 +85,9 @@ def check_stackability(
         support_weights = []
         support_limits = []
 
+        c_min_z = candidate.min_z
         for i, placed in enumerate(placed_boxes):
-            if placed.supports(candidate):
+            if abs(placed.max_z - c_min_z) < 1e-6 and placed.supports(candidate):
                 support_indices.append(i)
                 support_weights.append(placed_boxes_data[i].weight_kg)
                 support_limits.append(placed_boxes_data[i].max_load_bearing_kg)

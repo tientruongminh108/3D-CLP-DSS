@@ -130,8 +130,12 @@ def find_best_placement(
                 ep_z + inflated_dims.height > c_hgt):
                 continue
 
-            pos = Position(ep_x, ep_y, ep_z)
-            candidate_bbox = BoundingBox.from_position_and_dims(pos, inflated_dims)
+            candidate_bbox = BoundingBox(
+                ep_x, ep_y, ep_z,
+                ep_x + inflated_dims.length,
+                ep_y + inflated_dims.width,
+                ep_z + inflated_dims.height,
+            )
 
             # Fast non-overlap check
             if not check_non_overlap(candidate_bbox, placed_boxes):
@@ -154,13 +158,13 @@ def find_best_placement(
             # Tie-break: prefer rear-most (larger x), then higher z
             if score > best_score or (
                 abs(score - best_score) < 1e-9 and (
-                    pos.x > best_result.position.x or
-                    (abs(pos.x - best_result.position.x) < 1e-9 and pos.z > best_result.position.z)
+                    ep_x > best_result.position.x or
+                    (abs(ep_x - best_result.position.x) < 1e-9 and ep_z > best_result.position.z)
                 )
             ):
                 best_score = score
                 best_result = PlacementResult(
-                    position=pos,
+                    position=Position(ep_x, ep_y, ep_z),
                     posture=posture,
                     dims=inflated_dims,
                     actual_dims=dims,
@@ -173,6 +177,39 @@ def find_best_placement(
         return None, "lifo_blocked"
     else:
         return None, "no_space"
+
+
+def _add_box_extreme_points(
+    box_bbox: BoundingBox,
+    extreme_points: List[ExtremePoint],
+    seen_points: set,
+    placed_bboxes: List[BoundingBox],
+    container_dims: Dimensions,
+) -> List[ExtremePoint]:
+    """Incrementally update extreme points when a new box is placed."""
+    b_min_x, b_max_x = box_bbox.min_x, box_bbox.max_x
+    b_min_y, b_max_y = box_bbox.min_y, box_bbox.max_y
+    b_min_z, b_max_z = box_bbox.min_z, box_bbox.max_z
+
+    updated_points = [
+        p for p in extreme_points
+        if not (b_min_x <= p.x < b_max_x and b_min_y <= p.y < b_max_y and b_min_z <= p.z < b_max_z)
+    ]
+
+    new_points = [
+        ExtremePoint(b_max_x, b_min_y, b_min_z),
+        ExtremePoint(b_min_x, b_max_y, b_min_z),
+        ExtremePoint(b_min_x, b_min_y, b_max_z),
+    ]
+    c_len, c_wid, c_hgt = container_dims.length, container_dims.width, container_dims.height
+    for p in new_points:
+        if p.x <= c_len and p.y <= c_wid and p.z <= c_hgt:
+            projected = project_point_down(p, placed_bboxes, container_dims)
+            if projected not in seen_points:
+                seen_points.add(projected)
+                updated_points.append(projected)
+
+    return updated_points
 
 
 def place_boxes_greedy(
@@ -191,6 +228,7 @@ def place_boxes_greedy(
     # Seed initial extreme points with origin (0, 0, 0); real rear anchors
     # depend on box dimensions and come from corner_points_for during corner_phase.
     extreme_points = [ExtremePoint(0, 0, 0)]
+    seen_points = {ExtremePoint(0, 0, 0)}
     corner_phase = True
 
     for box in boxes:
@@ -227,35 +265,27 @@ def place_boxes_greedy(
                     )
                     
                     if valid:
-                        placed_bboxes.append(BoundingBox.from_position_and_dims(pos, candidate.dims))
+                        new_bbox = BoundingBox.from_position_and_dims(pos, candidate.dims)
+                        placed_bboxes.append(new_bbox)
                         placed_data.append(box)
                         current_weight += box.weight_kg
                         placed_at_corner = True
+                        extreme_points = _add_box_extreme_points(
+                            new_bbox, extreme_points, seen_points, placed_bboxes, container_dims
+                        )
                         break
                 
                 if placed_at_corner:
                     break
             
             if placed_at_corner:
-                # Update extreme points with downward projection
-                new_points = [
-                    ExtremePoint(placed_bboxes[-1].max_x, placed_bboxes[-1].min_y, placed_bboxes[-1].min_z),
-                    ExtremePoint(placed_bboxes[-1].min_x, placed_bboxes[-1].max_y, placed_bboxes[-1].min_z),
-                    ExtremePoint(placed_bboxes[-1].min_x, placed_bboxes[-1].min_y, placed_bboxes[-1].max_z),
-                ]
-                for p in new_points:
-                    projected = project_point_down(p, placed_bboxes, container_dims)
-                    extreme_points.append(projected)
-                # Prune dominated
-                extreme_points = prune_dominated_extreme_points(extreme_points)
                 continue
             else:
                 # No box could be placed at corners - end corner phase
                 corner_phase = False
 
         # Normal best-fit search
-        extreme_points = generate_extreme_points(placed_bboxes, container_dims, 0)
-        extreme_points = sort_extreme_points(extreme_points)
+        sorted_eps = sort_extreme_points(extreme_points)
 
         result, reason = find_best_placement(
             box,
@@ -265,16 +295,18 @@ def place_boxes_greedy(
             current_weight,
             max_weight,
             is_lcl,
-            extreme_points,
+            sorted_eps,
             last_customer_sequence,
         )
 
         if result:
-            placed_bboxes.append(
-                BoundingBox.from_position_and_dims(result.position, result.dims)
-            )
+            new_bbox = BoundingBox.from_position_and_dims(result.position, result.dims)
+            placed_bboxes.append(new_bbox)
             placed_data.append(box)
             current_weight += box.weight_kg
+            extreme_points = _add_box_extreme_points(
+                new_bbox, extreme_points, seen_points, placed_bboxes, container_dims
+            )
         else:
             unplaced.append((box, reason))
 
@@ -412,6 +444,7 @@ def decode_chromosome(
     # Seed initial extreme points with origin (0, 0, 0); real rear anchors
     # depend on box dimensions and come from corner_points_for during corner_phase.
     extreme_points = [ExtremePoint(0, 0, 0)]
+    seen_points = {ExtremePoint(0, 0, 0)}
     corner_phase = True
     last_customer_sequence = max(u.customer_sequence for u in units) if units else 0
 
@@ -464,7 +497,8 @@ def decode_chromosome(
                     )
                     
                     if valid:
-                        placed_bboxes.append(BoundingBox.from_position_and_dims(pos, candidate.dims))
+                        new_bbox = BoundingBox.from_position_and_dims(pos, candidate.dims)
+                        placed_bboxes.append(new_bbox)
                         placed_data.append(box)
                         placed_postures.append(posture)
                         current_weight += box.weight_kg
@@ -472,19 +506,12 @@ def decode_chromosome(
                         placed_at_corner = True
                         # Update chromosome with working posture
                         chromosome[i] = permitted.index(posture)
+                        extreme_points = _add_box_extreme_points(
+                            new_bbox, extreme_points, seen_points, placed_bboxes, container_dims
+                        )
                         break
                 
                 if placed_at_corner:
-                    # Update extreme points with downward projection
-                    new_points = [
-                        ExtremePoint(placed_bboxes[-1].max_x, placed_bboxes[-1].min_y, placed_bboxes[-1].min_z),
-                        ExtremePoint(placed_bboxes[-1].min_x, placed_bboxes[-1].max_y, placed_bboxes[-1].min_z),
-                        ExtremePoint(placed_bboxes[-1].min_x, placed_bboxes[-1].min_y, placed_bboxes[-1].max_z),
-                    ]
-                    for p in new_points:
-                        projected = project_point_down(p, placed_bboxes, container_dims)
-                        extreme_points.append(projected)
-                    extreme_points = prune_dominated_extreme_points(extreme_points)
                     break  # Break out of posture loop
                 else:
                     # This posture didn't fit at any corner. Stay in corner_phase
@@ -495,8 +522,7 @@ def decode_chromosome(
                 break  # Break out of posture loop
             
             # Normal best-fit search using find_best_placement (consistent with place_boxes_greedy)
-            extreme_points = generate_extreme_points(placed_bboxes, container_dims, 0)
-            extreme_points = sort_extreme_points(extreme_points)
+            sorted_eps = sort_extreme_points(extreme_points)
             
             result, reason = find_best_placement(
                 box,
@@ -506,18 +532,22 @@ def decode_chromosome(
                 current_weight,
                 max_weight,
                 is_lcl,
-                extreme_points,
+                sorted_eps,
                 last_customer_sequence,
             )
             
             if result:
-                placed_bboxes.append(BoundingBox.from_position_and_dims(result.position, result.dims))
+                new_bbox = BoundingBox.from_position_and_dims(result.position, result.dims)
+                placed_bboxes.append(new_bbox)
                 placed_data.append(box)
                 placed_postures.append(result.posture)
                 current_weight += box.weight_kg
                 placed = True
                 # Update chromosome with working posture
                 chromosome[i] = permitted.index(result.posture)
+                extreme_points = _add_box_extreme_points(
+                    new_bbox, extreme_points, seen_points, placed_bboxes, container_dims
+                )
                 break  # Break out of posture loop
             else:
                 # find_best_placement already tested all permitted postures against all extreme points.
@@ -560,8 +590,7 @@ def decode_chromosome(
                 corner_phase = False
                 # Corner phase ended because this box cannot fit at any corner.
                 # Attempt general placement via extreme points so this box is not skipped.
-                extreme_points = generate_extreme_points(placed_bboxes, container_dims, 0)
-                extreme_points = sort_extreme_points(extreme_points)
+                sorted_eps = sort_extreme_points(extreme_points)
                 result, reason = find_best_placement(
                     box,
                     placed_bboxes,
@@ -570,16 +599,20 @@ def decode_chromosome(
                     current_weight,
                     max_weight,
                     is_lcl,
-                    extreme_points,
+                    sorted_eps,
                     last_customer_sequence,
                 )
                 if result:
-                    placed_bboxes.append(BoundingBox.from_position_and_dims(result.position, result.dims))
+                    new_bbox = BoundingBox.from_position_and_dims(result.position, result.dims)
+                    placed_bboxes.append(new_bbox)
                     placed_data.append(box)
                     placed_postures.append(result.posture)
                     current_weight += box.weight_kg
                     placed = True
                     chromosome[i] = permitted.index(result.posture)
+                    extreme_points = _add_box_extreme_points(
+                        new_bbox, extreme_points, seen_points, placed_bboxes, container_dims
+                    )
 
         if not placed:
             unplaced.append((box, 'no_space'))
