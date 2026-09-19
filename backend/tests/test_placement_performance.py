@@ -48,9 +48,9 @@ def test_decode_chromosome_exact_placement(fcl_dataset):
         list(chromosome), all_units, container_dims, max_weight, is_lcl=False
     )
 
-    assert len(placed_bboxes) == 86
-    assert len(placed_data) == 86
-    assert current_weight == pytest.approx(6050.18, abs=0.01)
+    assert len(placed_bboxes) == 108
+    assert len(placed_data) == 108
+    assert current_weight == pytest.approx(6823.97, abs=0.01)
 
     # Verify first 3 boxes match exact coordinates
     assert (placed_bboxes[0].min_x, placed_bboxes[0].min_y, placed_bboxes[0].min_z) == (1101.0, 0, 0)

@@ -36,7 +36,7 @@ class TestConfigurationDefaults:
             "FITNESS_COG_PENALTY_WEIGHT": 0.3,
             "UNPLACED_RANK_WEIGHT": 2.0,
             "FITNESS_VOLUME_WEIGHT": 1.0,
-            "SUPPORT_RATIO": 0.8,
+            "SUPPORT_RATIO": 0.6,
             "CONTACT_RATIO_WEIGHT": 1.0,
             "RESIDUAL_VOLUME_WEIGHT": 1.0,
             "MAX_WEIGHT_UTILIZATION": 1.0,
