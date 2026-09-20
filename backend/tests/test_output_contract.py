@@ -616,3 +616,53 @@ class TestOutputCoordinateIntegrity:
             assert box.z + box.actual_height <= H + 1e-4, (
                 f"Box {box.box_id} exceeds H: {box.z} + {box.actual_height} = {box.z + box.actual_height} > {H}"
             )
+
+    def test_step_index_ordering_rear_to_front(self):
+        """Verify that step_index ordering sorts by (customer_sequence, -x, z, y).
+        Within each customer sequence, x should be non-increasing (rear-to-front),
+        with z ascending (floor to ceiling) within depth plateaus.
+        """
+        import pandas as pd
+        from app.solver.pipeline import run_pipeline
+        from app.core.models import RunOptions
+
+        container_df = pd.DataFrame([{
+            "Container_Type": "20DC",
+            "Internal_Length_cm": 589.8,
+            "Internal_Width_cm": 235.2,
+            "Internal_Height_cm": 239.3,
+            "Max_Weight_kg": 28200.0,
+        }])
+        item_master_df = pd.DataFrame([
+            {
+                "Item_ID": "ITEM_A",
+                "Description": "Test Item A",
+                "Length_cm": 60.0,
+                "Width_cm": 40.0,
+                "Height_cm": 40.0,
+                "Weight_kg": 15.0,
+                "This_Way_Up": True,
+                "Stacking_Group": 1,
+                "Permitted_Postures": "LWH,WLH",
+            }
+        ])
+        packing_list_df = pd.DataFrame([
+            {"PO_No": "PO1", "Item_ID": "ITEM_A", "Qty_Pcs": 30, "Qty_Cartons": 30, "Customer_Code": "CUST1"},
+        ])
+        options = RunOptions(population_size=10, generations=10, tolerance_gap_cm=2.0)
+        pipeline_res = run_pipeline(packing_list_df, item_master_df, container_df, options=options)
+        boxes = pipeline_res.result.placed_boxes
+        assert len(boxes) > 1
+
+        # Check that step_index increases sequentially starting from 1
+        step_indices = [b.step_index for b in boxes]
+        assert step_indices == list(range(1, len(boxes) + 1))
+
+        # Check key sort property: for any consecutive boxes in same customer_sequence,
+        # key (cust_seq, -x, z, y) is monotonically non-decreasing
+        for i in range(len(boxes) - 1):
+            b1 = boxes[i]
+            b2 = boxes[i + 1]
+            key1 = (b1.customer_sequence, -b1.x, b1.z, b1.y)
+            key2 = (b2.customer_sequence, -b2.x, b2.z, b2.y)
+            assert key1 <= key2, f"Step ordering violated between #{b1.step_index} and #{b2.step_index}: {key1} > {key2}"

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { runApi } from '../hooks/useApi'
 import { Icons } from './Layout'
 import type { RunSummary } from '../types/api'
 
 export function RunHistory() {
+  const navigate = useNavigate()
   const [runs, setRuns] = useState<RunSummary[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -55,12 +56,17 @@ export function RunHistory() {
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 uppercase tracking-wider text-xs">Fill Rate</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 uppercase tracking-wider text-xs">Status</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 uppercase tracking-wider text-xs">Created</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 uppercase tracking-wider text-xs">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {runs.map((run) => (
-                  <tr key={run.run_id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-3 font-mono text-sm text-slate-700">{run.run_id.slice(0, 8)}...</td>
+                  <tr
+                    key={run.run_id}
+                    onClick={() => navigate(`/history/${run.run_id}`)}
+                    className="border-t border-slate-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
+                  >
+                    <td className="px-4 py-3 font-mono text-sm font-medium text-blue-600">{run.run_id.slice(0, 8)}...</td>
                     <td className="px-4 py-3 text-slate-700">{run.container_type}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
@@ -85,6 +91,14 @@ export function RunHistory() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{new Date(run.created_at).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <NavLink
+                        to={`/history/${run.run_id}`}
+                        className="btn btn-outline btn-xs inline-flex items-center gap-1 font-medium text-blue-600 hover:bg-blue-600 hover:text-white"
+                      >
+                        View Plan &rarr;
+                      </NavLink>
+                    </td>
                   </tr>
                 ))}
               </tbody>

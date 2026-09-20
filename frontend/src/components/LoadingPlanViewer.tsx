@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Html } from '@react-three/drei'
-import type { RunResult, PlacedBox, Container, LayerBox } from '../types/api'
+import type { RunResult, PlacedBox, Container } from '../types/api'
 import { UnplacedCartons } from './UnplacedCartons'
 
 interface LoadingPlanViewerProps {
@@ -230,10 +230,8 @@ function Scene({
 }
 
 export function LoadingPlanViewer({ result, onNewRun }: LoadingPlanViewerProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'layers'>('overview')
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
   const [hoveredBox, setHoveredBox] = useState<PlacedBox | null>(null)
-  const [selectedLayer, setSelectedLayer] = useState(0)
 
   const totalBoxes = result.placed_boxes.length
   const [currentStep, setCurrentStep] = useState<number>(totalBoxes || 1)
@@ -361,191 +359,58 @@ export function LoadingPlanViewer({ result, onNewRun }: LoadingPlanViewerProps) 
         )}
       </div>
 
-      {/* View Tabs */}
-      <div className="viewer-tabs">
-        <button
-          className={`viewer-tab ${activeTab === 'overview' ? 'active' : ''}`}
-          onClick={() => setActiveTab('overview')}
-        >
-          3D Step-by-Step Overview
-        </button>
-        <button
-          className={`viewer-tab ${activeTab === 'layers' ? 'active' : ''}`}
-          onClick={() => setActiveTab('layers')}
-        >
-          Layer Walkthrough ({result.layers?.length || 0})
-        </button>
-      </div>
-
       {/* 3D Viewport Content */}
       <div className="viewer-content relative bg-slate-900 rounded-xl overflow-hidden shadow-inner" style={{ minHeight: '480px', height: '540px' }}>
-        {activeTab === 'overview' && (
-          <>
-            <Canvas
-              camera={{ position: cameraPos, fov: 48, near: 1, far: camDist * 15 }}
-              style={{ width: '100%', height: '100%' }}
-              onCreated={({ gl }) => { gl.setClearColor('#0f172a', 1) }}
-            >
-              <Scene
-                placedBoxes={displayedBoxes}
-                container={container}
-                metrics={metrics}
-                selectedBoxId={selectedBoxId}
-                hoveredBoxId={hoveredBox?.box_id || null}
-                currentStep={currentStep}
-                onBoxClick={handleBoxClick}
-                onBoxHover={setHoveredBox}
-              />
-              <OrbitControls
-                target={controlsTarget}
-                enableDamping
-                dampingFactor={0.12}
-                minDistance={30}
-                maxDistance={camDist * 10}
-              />
-            </Canvas>
+        <Canvas
+          camera={{ position: cameraPos, fov: 48, near: 1, far: camDist * 15 }}
+          style={{ width: '100%', height: '100%' }}
+          onCreated={({ gl }) => { gl.setClearColor('#0f172a', 1) }}
+        >
+          <Scene
+            placedBoxes={displayedBoxes}
+            container={container}
+            metrics={metrics}
+            selectedBoxId={selectedBoxId}
+            hoveredBoxId={hoveredBox?.box_id || null}
+            currentStep={currentStep}
+            onBoxClick={handleBoxClick}
+            onBoxHover={setHoveredBox}
+          />
+          <OrbitControls
+            target={controlsTarget}
+            enableDamping
+            dampingFactor={0.12}
+            minDistance={30}
+            maxDistance={camDist * 10}
+          />
+        </Canvas>
 
-            {/* Floating Inspection HUD (Top Left) */}
-            {activeInspectBox && (
-              <div className="absolute top-4 left-4 z-10 bg-slate-800/90 backdrop-blur border border-slate-700 text-white rounded-lg p-3 text-xs shadow-lg max-w-xs pointer-events-none">
-                <div className="flex items-center justify-between gap-2 border-b border-slate-700 pb-1.5 mb-1.5">
-                  <span className="font-semibold text-blue-400">Step #{activeInspectBox.step_index}</span>
-                  <span className="font-mono text-slate-400">{activeInspectBox.box_id}</span>
-                </div>
-                <div className="space-y-1">
-                  <div><span className="text-slate-400">SKU:</span> <span className="font-medium text-slate-200">{activeInspectBox.item_id}</span></div>
-                  {activeInspectBox.description && (
-                    <div><span className="text-slate-400">Desc:</span> <span className="text-slate-200">{activeInspectBox.description}</span></div>
-                  )}
-                  <div><span className="text-slate-400">PO:</span> <span className="text-slate-200">{activeInspectBox.po_no}</span></div>
-                  {activeInspectBox.customer_code && (
-                    <div><span className="text-slate-400">Customer:</span> <span className="text-emerald-400">{activeInspectBox.customer_code}</span></div>
-                  )}
-                  <div><span className="text-slate-400">Dimensions:</span> <span className="text-slate-200">{activeInspectBox.actual_length} &times; {activeInspectBox.actual_width} &times; {activeInspectBox.actual_height} cm</span></div>
-                  <div><span className="text-slate-400">Weight:</span> <span className="text-slate-200">{activeInspectBox.weight_kg} kg</span></div>
-                  <div><span className="text-slate-400">Position (X,Y,Z):</span> <span className="font-mono text-slate-300">({activeInspectBox.x.toFixed(1)}, {activeInspectBox.y.toFixed(1)}, {activeInspectBox.z.toFixed(1)}) cm</span></div>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'layers' && (
-          <div className="h-full flex flex-col">
-            {(!result.layers || result.layers.length === 0) ? (
-              <div className="flex items-center justify-center h-full text-slate-400">No layer data available</div>
-            ) : (
-              (() => {
-                const layer = result.layers[selectedLayer] || result.layers[0]
-                const isRearLayer = selectedLayer === 0
-                const isDoorLayer = selectedLayer === result.layers.length - 1
-                return (
-                  <div className="h-full flex flex-col">
-                    {/* Layer control bar */}
-                    <div className="p-3 bg-slate-800 text-white flex items-center justify-between gap-3 border-b border-slate-700 flex-wrap">
-                      {/* Prev / slider / Next */}
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <button
-                          className="btn btn-outline btn-sm flex-none"
-                          onClick={() => setSelectedLayer((prev) => Math.max(0, prev - 1))}
-                          disabled={selectedLayer <= 0}
-                          title="Previous layer (toward rear wall)"
-                        >
-                          ← Prev
-                        </button>
-
-                        <div className="flex flex-col flex-1 min-w-0 gap-0.5">
-                          {/* Direction legend */}
-                          <div className="flex justify-between text-[10px] text-slate-400 px-0.5">
-                            <span><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'#ef4444',marginRight:4}}/>Rear Wall</span>
-                            <span>Door<span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'#3b82f6',marginLeft:4}}/></span>
-                          </div>
-                          <input
-                            type="range"
-                            min={0}
-                            max={result.layers.length - 1}
-                            value={selectedLayer}
-                            onChange={(e) => setSelectedLayer(parseInt(e.target.value, 10))}
-                            className="w-full cursor-pointer"
-                          />
-                        </div>
-
-                        <button
-                          className="btn btn-outline btn-sm flex-none"
-                          onClick={() => setSelectedLayer((prev) => Math.min(result.layers.length - 1, prev + 1))}
-                          disabled={selectedLayer >= result.layers.length - 1}
-                          title="Next layer (toward door)"
-                        >
-                          Next →
-                        </button>
-                      </div>
-
-                      {/* Layer info */}
-                      <div className="flex items-center gap-2 flex-none">
-                        {isRearLayer && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 font-semibold border border-red-700">
-                             Rear Wall
-                          </span>
-                        )}
-                        {isDoorLayer && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 font-semibold border border-blue-700">
-                             Door Layer
-                          </span>
-                        )}
-                        <span className="text-xs text-slate-300 font-mono whitespace-nowrap">
-                          Layer {selectedLayer + 1} / {result.layers.length}
-                          &nbsp;&bull;&nbsp;
-                          X: {layer.x_min.toFixed(0)} – {layer.x_max.toFixed(0)} cm
-                          &nbsp;&bull;&nbsp;
-                          {layer.boxes.length} cartons
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex-1">
-                      <Canvas
-                        camera={{ position: cameraPos, fov: 48, near: 1, far: camDist * 15 }}
-                        style={{ width: '100%', height: '100%' }}
-                        onCreated={({ gl }) => { gl.setClearColor('#0f172a', 1) }}
-                      >
-                        <ambientLight intensity={0.8} />
-                        <directionalLight position={[L * 1.2, H * 2.5, W * 1.5]} intensity={1.1} />
-                        <ContainerWireframe container={container} />
-
-                        {layer.boxes.map((box: LayerBox) => {
-                          const posX = box.x + box.length / 2 - L / 2
-                          const posY = box.z + box.height / 2
-                          const posZ = box.y + box.width / 2 - W / 2
-                          const bColor = box.color || COLORS[box.customer_sequence % 8 || 8] || '#3b82f6'
-
-                          return (
-                            <mesh key={box.box_id} position={[posX, posY, posZ]}>
-                              <boxGeometry args={[box.length, box.height, box.width]} />
-                              <meshStandardMaterial
-                                color={bColor}
-                                transparent
-                                opacity={0.9}
-                                metalness={0.1}
-                                roughness={0.7}
-                              />
-                            </mesh>
-                          )
-                        })}
-
-                        <gridHelper args={[Math.max(L, W) * 1.3, 40, '#cbd5e1', '#e2e8f0']} />
-                        <OrbitControls target={controlsTarget} enableDamping dampingFactor={0.12} />
-                      </Canvas>
-                    </div>
-                  </div>
-                )
-              })()
-            )}
+        {/* Floating Inspection HUD (Top Left) */}
+        {activeInspectBox && (
+          <div className="absolute top-4 left-4 z-10 bg-slate-800/90 backdrop-blur border border-slate-700 text-white rounded-lg p-3 text-xs shadow-lg max-w-xs pointer-events-none">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-700 pb-1.5 mb-1.5">
+              <span className="font-semibold text-blue-400">Step #{activeInspectBox.step_index}</span>
+              <span className="font-mono text-slate-400">{activeInspectBox.box_id}</span>
+            </div>
+            <div className="space-y-1">
+              <div><span className="text-slate-400">SKU:</span> <span className="font-medium text-slate-200">{activeInspectBox.item_id}</span></div>
+              {activeInspectBox.description && (
+                <div><span className="text-slate-400">Desc:</span> <span className="text-slate-200">{activeInspectBox.description}</span></div>
+              )}
+              <div><span className="text-slate-400">PO:</span> <span className="text-slate-200">{activeInspectBox.po_no}</span></div>
+              {activeInspectBox.customer_code && (
+                <div><span className="text-slate-400">Customer:</span> <span className="text-emerald-400">{activeInspectBox.customer_code}</span></div>
+              )}
+              <div><span className="text-slate-400">Dimensions:</span> <span className="text-slate-200">{activeInspectBox.actual_length} &times; {activeInspectBox.actual_width} &times; {activeInspectBox.actual_height} cm</span></div>
+              <div><span className="text-slate-400">Weight:</span> <span className="text-slate-200">{activeInspectBox.weight_kg} kg</span></div>
+              <div><span className="text-slate-400">Position (X,Y,Z):</span> <span className="font-mono text-slate-300">({activeInspectBox.x.toFixed(1)}, {activeInspectBox.y.toFixed(1)}, {activeInspectBox.z.toFixed(1)}) cm</span></div>
+            </div>
           </div>
         )}
       </div>
 
       {/* Step-by-Step Sequence Slider Controller (Section 4) */}
-      {activeTab === 'overview' && totalBoxes > 0 && (
+      {totalBoxes > 0 && (
         <div className="card p-4 bg-white border border-slate-200 rounded-xl shadow-sm space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">

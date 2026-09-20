@@ -23,6 +23,7 @@ export function PackingListsManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [packingLists, setPackingLists] = useState<PackingList[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const { success: toastSuccess, error: toastError } = useToastStore()
 
@@ -74,6 +75,14 @@ export function PackingListsManagement() {
     try {
       await packingListApi.delete(dbId)
       toastSuccess(`Deleted ${displayId}`)
+      setSelectedIds(prev => {
+        if (prev.has(dbId)) {
+          const next = new Set(prev)
+          next.delete(dbId)
+          return next
+        }
+        return prev
+      })
       loadPackingLists()
       useWizardStore.getState().bumpPackingListVersion()
     } catch (err: any) {
@@ -81,12 +90,69 @@ export function PackingListsManagement() {
     }
   }
 
-  const filteredLists = packingLists.filter(list => {
-    const matchesSearch = list.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  const handleBulkDelete = async () => {
+    const count = selectedIds.size
+    if (count === 0) return
+    if (!confirm(`Delete ${count} selected packing list${count > 1 ? 's' : ''}?`)) return
+
+    const idsToDelete = Array.from(selectedIds)
+    const results = await Promise.allSettled(idsToDelete.map(id => packingListApi.delete(id)))
+
+    const succeeded = results.filter(r => r.status === 'fulfilled').length
+    const failed = results.filter(r => r.status === 'rejected').length
+
+    if (failed === 0) {
+      toastSuccess(`Successfully deleted ${succeeded} packing list${succeeded > 1 ? 's' : ''}`)
+    } else if (succeeded > 0) {
+      toastError(`${succeeded} packing list${succeeded > 1 ? 's' : ''} deleted, ${failed} failed`)
+    } else {
+      toastError('Failed to delete selected packing lists')
+    }
+
+    setSelectedIds(new Set())
+    loadPackingLists()
+    useWizardStore.getState().bumpPackingListVersion()
+  }
+
+  const filteredLists = packingLists.filter((list) => {
+    const matchesSearch =
+      list.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       list.customerName.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === 'all' || list.status === statusFilter
+
+    const matchesStatus =
+      statusFilter === 'all' || list.status.toLowerCase() === statusFilter.toLowerCase()
+
     return matchesSearch && matchesStatus
   })
+
+  const visibleDbIds = filteredLists.map(l => l.dbId)
+  const allSelected = visibleDbIds.length > 0 && visibleDbIds.every(id => selectedIds.has(id))
+  const someSelected = visibleDbIds.some(id => selectedIds.has(id)) && !allSelected
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        visibleDbIds.forEach(id => next.delete(id))
+        return next
+      })
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        visibleDbIds.forEach(id => next.add(id))
+        return next
+      })
+    }
+  }
+
+  const handleToggleSelect = (dbId: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(dbId)) next.delete(dbId)
+      else next.add(dbId)
+      return next
+    })
+  }
 
   const handleFileUpload = async (file: File | undefined) => {
     if (!file) return
@@ -170,6 +236,35 @@ export function PackingListsManagement() {
         </div>
       </header>
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-950">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-blue-800">{selectedIds.size}</span>
+            <span className="text-slate-700">packing list{selectedIds.size > 1 ? 's' : ''} selected</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm text-slate-600 hover:text-slate-900"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear Selection
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm bg-red-600 hover:bg-red-700 text-white border-none flex items-center gap-1.5 font-medium shadow-sm"
+              onClick={handleBulkDelete}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              Delete Selected ({selectedIds.size})
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="p-4 border-b border-border flex flex-wrap items-center gap-3">
           <div className="search-input-wrapper" style={{ flex: 1, minWidth: '240px', maxWidth: '400px' }}>
@@ -202,6 +297,18 @@ export function PackingListsManagement() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: '44px' }} className="text-center">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected
+                    }}
+                    onChange={handleSelectAll}
+                    aria-label="Select all visible packing lists"
+                  />
+                </th>
                 <th style={{ width: '120px' }}>ID</th>
                 <th style={{ width: '140px' }}>Date Created</th>
                 <th style={{ minWidth: '200px' }}>Customer Name</th>
@@ -215,13 +322,22 @@ export function PackingListsManagement() {
             <tbody>
               {filteredLists.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: 'var(--color-text-muted)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '32px', color: 'var(--color-text-muted)' }}>
                     No packing lists found
                   </td>
                 </tr>
               ) : (
                 filteredLists.map((list) => (
-                  <tr key={list.id}>
+                  <tr key={list.id} className={selectedIds.has(list.dbId) ? 'bg-blue-50/40' : ''}>
+                    <td style={{ width: '44px' }} className="text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                        checked={selectedIds.has(list.dbId)}
+                        onChange={() => handleToggleSelect(list.dbId)}
+                        aria-label={`Select packing list ${list.id}`}
+                      />
+                    </td>
                     <td className="font-mono text-sm">{list.id}</td>
                     <td>{formatDate(list.dateCreated)}</td>
                     <td>{list.customerName}</td>

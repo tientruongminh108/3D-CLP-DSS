@@ -8,6 +8,7 @@ import { generateItemsCSVTemplate, downloadCSVTemplate } from '../utils/csv'
 export function ItemMasterTable() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<Item[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<Item | null>(null)
@@ -142,10 +143,41 @@ export function ItemMasterTable() {
     try {
       await itemApi.delete(id)
       setItems(items.filter(i => i.id !== id))
+      setSelectedIds(prev => {
+        if (prev.has(id)) {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        }
+        return prev
+      })
       toastSuccess('Item deleted successfully')
     } catch (e: any) {
       toastError(e.response?.data?.detail || 'Failed to delete')
     }
+  }
+
+  const handleBulkDelete = async () => {
+    const count = selectedIds.size
+    if (count === 0) return
+    if (!confirm(`Delete ${count} selected item${count > 1 ? 's' : ''}?`)) return
+
+    const idsToDelete = Array.from(selectedIds)
+    const results = await Promise.allSettled(idsToDelete.map(id => itemApi.delete(id)))
+
+    const succeeded = results.filter(r => r.status === 'fulfilled').length
+    const failed = results.filter(r => r.status === 'rejected').length
+
+    if (failed === 0) {
+      toastSuccess(`Successfully deleted ${succeeded} item${succeeded > 1 ? 's' : ''}`)
+    } else if (succeeded > 0) {
+      toastError(`${succeeded} item${succeeded > 1 ? 's' : ''} deleted, ${failed} failed`)
+    } else {
+      toastError('Failed to delete selected items')
+    }
+
+    setSelectedIds(new Set())
+    loadItems()
   }
 
   const handleNew = () => {
@@ -177,6 +209,35 @@ export function ItemMasterTable() {
     item.item_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.description.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  const visibleIds = filteredItems.map(item => item.id)
+  const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id))
+  const someSelected = visibleIds.some(id => selectedIds.has(id)) && !allSelected
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        visibleIds.forEach(id => next.delete(id))
+        return next
+      })
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        visibleIds.forEach(id => next.add(id))
+        return next
+      })
+    }
+  }
+
+  const handleToggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const triggerFileInput = () => {
     fileInputRef.current?.click()
@@ -230,11 +291,52 @@ export function ItemMasterTable() {
         </div>
       </header>
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-950">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-blue-800">{selectedIds.size}</span>
+            <span className="text-slate-700">item{selectedIds.size > 1 ? 's' : ''} selected</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm text-slate-600 hover:text-slate-900"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear Selection
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm bg-red-600 hover:bg-red-700 text-white border-none flex items-center gap-1.5 font-medium shadow-sm"
+              onClick={handleBulkDelete}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              Delete Selected ({selectedIds.size})
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="table-container overflow-y-auto">
           <table className="data-table">
           <thead>
             <tr>
+              <th style={{ width: '44px' }} className="text-center">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected
+                  }}
+                  onChange={handleSelectAll}
+                  aria-label="Select all visible items"
+                />
+              </th>
               <th>Item ID</th>
               <th>Description</th>
               <th>Dims (L×W×H)</th>
@@ -247,7 +349,16 @@ export function ItemMasterTable() {
           </thead>
           <tbody>
             {filteredItems.map((item) => (
-              <tr key={item.id}>
+              <tr key={item.id} className={selectedIds.has(item.id) ? 'bg-blue-50/40' : ''}>
+                <td style={{ width: '44px' }} className="text-center" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                    checked={selectedIds.has(item.id)}
+                    onChange={() => handleToggleSelect(item.id)}
+                    aria-label={`Select item ${item.item_id}`}
+                  />
+                </td>
                 <td className="font-mono">{item.item_id}</td>
                 <td>{item.description}</td>
                 <td>{item.length_cm}×{item.width_cm}×{item.height_cm}</td>
