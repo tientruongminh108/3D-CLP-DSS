@@ -12,7 +12,7 @@ This document is the reference for how the system is to be built, end to end: wh
 6. [Output](#6-output)
 7. [Tunable Parameters Reference](#7-tunable-parameters-reference-config-module)
 8. [System Architecture (Web Application)](#8-system-architecture-web-application)
-9. [Ideas Beyond the Paper (Not Yet Implemented)](#9-ideas-beyond-the-paper-not-yet-implemented)
+9. [Extensions Beyond the Paper](#9-extensions-beyond-the-paper)
 
 ---
 
@@ -49,7 +49,7 @@ Steps 1, 3, and 5's presentation layer are Supervisor/UI steps around the core s
 2. The system resolves every line against `item_master` to pull each carton type's physical and handling attributes (dimensions, weight, stacking behavior).
 3. The Supervisor selects the container to load against, per the shipment's Booking Notes (already decided, per Section 1.3).
 4. The system runs the solver (Sections 3-5) against that single confirmed input set.
-5. The system produces the loading plan: a 3D model of the arrangement plus the operational metrics that matter for the loading crew and for measuring performance (fill rate, weight used, unplaced cartons) - Section 6 describes exactly what this includes today; a layer-by-layer walkthrough view is a natural extension of the same output data (Section 6.3) for a future UI.
+5. The system produces the loading plan: an interactive 3D model of the arrangement with a step-by-step loading sequence walkthrough (revealing cartons in strict loading order from rear to door) plus the operational metrics that matter for the loading crew and for measuring performance (fill rate, weight used, unplaced cartons) - Section 6 describes exactly what this includes.
 
 ---
 
@@ -140,9 +140,9 @@ General flow, following the source paper's own architecture directly (its Fig. 1
 
 **STEP 4 - Genetic Algorithm with embedded Simulated Annealing** (Section 5.3, paper Section 2.4): the primary search driver. Each individual in the population is a posture assignment over the block/box list from Step 3; each individual is decoded into a full loading plan by the **Improved Placeable Point Strategy** (Section 5.2, paper Section 2.3), which does the actual placement, corner-first seeding, contact-ratio scoring, and constraint checking - including the LIFO check when LCL is active (Section 4.5). Fitness combines loaded volume with penalty terms for center-of-gravity deviation, load-bearing violations, and stability (Section 5.3.2, paper Eq. 12-16). Selection uses roulette-wheel plus elite retention; reproduction uses multi-point crossover and a dynamic-rate mutation (Section 5.3.3, paper Section 2.4.3). Every few generations, Simulated Annealing takes the current best individual and refines it through localized random re-posturing (Section 5.3.4, paper Section 2.4.3(4)) before the population continues. This loop runs for a configured number of generations or until convergence, and returns the best individual seen across the whole run.
 
-**STEP 5 - Render output**: decode the GA's best individual one final time to produce the reported loading plan, then **explode every block placement back into its original individual boxes** (Section 5.2.4) - blocks exist only to make Steps 3-4's search faster and more effective, never as the actual unit reported to a Supervisor or a loading crew - then render a 3D HTML visualization and a text pick list from the exploded plan (Section 6).
+**STEP 5 - Post-processing compaction pass** (Section 9.5): once the GA/SA optimization finalizes its plan, a post-processing pass (`compaction.py`) slides placed cartons tightly toward the container's rear wall (+X) and left side wall (min-Y) without violating physical or LIFO constraints. It then regenerates candidate extreme points in the freed space and re-scans any unplaced cartons (smallest-volume-first) to recover fragmented interstitial volume left by the constructive heuristic.
 
-**To add a new solving stage** (e.g. a post-processing compaction pass): insert it after Step 4 in the entry-point module, feeding it a loading plan and returning a loading plan, so it composes with the existing pipeline without touching the GA/SA/placement contract itself.
+**STEP 6 - Render output**: explode every block placement back into its original individual cartons (Section 5.2.4) - blocks exist only to make Steps 3-4's search faster and more effective, never as the actual unit reported to a Supervisor or a loading crew - then calculate true physical load metrics, build longitudinal layer slices, sort placements into strict loading order (`customer_sequence, -x, z, y` — rear-to-door, floor-to-ceiling, left-to-right), and render the interactive 3D visualization and text pick list (Section 6).
 
 ### 3.2 Where container selection actually happens
 
@@ -181,6 +181,16 @@ Following the source paper's model directly (Section 2.1.1 of the paper): for ev
 
 **Secondary objective (tie-break only): maximize fill rate**, defined as used volume divided by container internal volume. This still matters - a needlessly loose arrangement wastes space and can look sloppy or unstable to a crew even when every carton is technically placed - but only ever as a way to choose between two plans that already place the same number of cartons. Fill rate is never traded against completeness: a plan that places every carton at a lower fill rate always beats a plan that leaves cartons out at a higher fill rate, with no exception and no configurable weighting between the two, since the moment fill rate is allowed to outweigh completeness even slightly, the door reopens to the exact "looks efficient, but someone still has to improvise a fix" outcome this section exists to rule out.
 
+**Two distinct, valid meanings of "fill rate" in this system**:
+- **GA Search Fitness Volume Basis (`fitness.py`)**: During the genetic optimization, candidate plans are evaluated using each box's **inflated dimensions** (actual dimensions + `TOLERANCE_GAP_CM` on length and width). This is the mathematically correct basis for the search itself, as the padded footprint represents the volume actually reserved inside the container.
+- **User-Facing Physical Fill Rate (`output.py`)**: The reported fill rate shown in the UI, API metrics, and database computes placed volume using each carton's **actual (non-inflated) dimensions** divided by the full container internal volume:
+  $$\text{fill\_rate} = \frac{\sum (\text{actual\_length} \times \text{actual\_width} \times \text{actual\_height})}{\text{container\_internal\_volume}}$$
+  This is the correct operational metric for a Supervisor asking "what fraction of the container is genuinely filled with product." Because the search basis reserves tolerance gaps, debug/log outputs from the GA will typically report a fill rate 3–4 percentage points higher than the final displayed metric for the exact same plan (e.g. ~84% internal search volume vs ~80% physical fill rate). This gap is expected and intentional.
+
+**The theoretical fill-rate ceiling**: A common point of confusion is expecting an algorithm to achieve 85–90% fill rate on a packing list that physically cannot reach it. The fill rate can never exceed the total physical volume of all cartons in the packing list divided by the container volume:
+$$\text{Ceiling} = \frac{\sum_{\text{all cartons in PL}} \text{actual\_volume}}{\text{container\_internal\_volume}}$$
+For example, a packing list whose 152 cartons sum to $61.37\text{ m}^3$ loaded into a 40HC container ($76.41\text{ m}^3$ internal volume) has a hard physical ceiling of **80.32%**, even with 100% carton placement. *(Documentation TODO: Surface this theoretical ceiling in future API metric models alongside achieved fill rate to make the upper bound immediately visible).*
+
 **Where this constrains the design, concretely**: every part of Sections 4-5 that scores or compares candidate states - the Placeable Point Strategy's per-box best-fit scoring (Section 5.2.1), the Genetic Algorithm's fitness function (Section 5.3.2) - must respect this ordering. A scoring or fitness function that trades completeness for density even a little silently reintroduces fill-rate-maximization as the real objective in practice, regardless of what this section says the priority is supposed to be; see Section 5.3.2 for exactly how the `UNPLACED_RANK_WEIGHT` term guarantees this ordering holds.
 
 ### 4.4 Constraints
@@ -195,7 +205,7 @@ Seven constraints are implemented:
 
 4. **Stackability (support and load-bearing category)**, a two-part rule:
 
-   a. **Physical support**: a box not resting on the floor (z = 0) must have at least a configured minimum fraction (default 0.8, meaning up to 20% overhang) of its footprint area supported by box(es) whose top face is exactly at its z. **Deliberately stricter than the source paper**: the paper's own support-stability formulation (Eq. 7) uses a 0.5 threshold (more than half the footprint supported) as its baseline, and only tightens to 1.0 (full support, no overhang at all) when comparing against other algorithms that assume full support. This system defaults to 0.8 instead of the paper's 0.5 baseline as a deliberate safety margin for solid wood furniture handled by hand in this warehouse - real cargo isn't the idealized rigid cuboid the model assumes, so a wider support margin costs some fill rate but reduces the real-world risk of a carton tipping during transit or manual unloading. Configurable in Section 7 if a different margin is wanted for a specific fleet or route. **Interaction with tolerance gap (constraint 7)**: this ratio is computed against each box's gap-inflated footprint (Section 2.4), not its true declared footprint, since that's the footprint every other geometry check in this system already works against - the discrepancy this introduces is small and conservative (a slightly larger footprint in the denominator makes the ratio slightly harder to satisfy, never easier), so it was judged not worth a separate true-dimension recomputation just for this one ratio.
+   a. **Physical support**: a box not resting on the floor (z = 0) must have at least a configured minimum fraction (default 0.6, meaning up to 40% overhang) of its footprint area supported by box(es) whose top face is exactly at its z. **Empirically tuned for real furniture cargo**: the paper's own support-stability formulation (Eq. 7) uses a 0.5 threshold (more than half the footprint supported) as its baseline, and only tightens to 1.0 (full support, no overhang at all) when comparing against other algorithms that assume full support. An earlier revision of this system defaulted to 0.8 as a conservative margin, but empirical testing against this warehouse's solid wood furniture datasets demonstrated that 0.8 was overly restrictive: it caused severe placement fragmentation and prevented interlocking of mixed-dimension cartons. Relaxing the threshold to 0.6 (allowing up to 40% overhang) measurably improved fill rates and carton placement counts across benchmark runs without introducing tipping risk or physical instability in spot checks, while remaining safer than the paper's 0.5 baseline. Configurable in Section 7 (`SUPPORT_RATIO`) if a different margin is wanted for a specific fleet or route. **Interaction with tolerance gap (constraint 7)**: this ratio is computed against each box's gap-inflated footprint (Section 2.4), not its true declared footprint, since that's the footprint every other geometry check in this system already works against - the discrepancy this introduces is small and conservative (a slightly larger footprint in the denominator makes the ratio slightly harder to satisfy, never easier), so it was judged not worth a separate true-dimension recomputation just for this one ratio.
 
    b. **Load-bearing compatibility**: every supporting box must belong to a stacking group that is allowed to carry the candidate's stacking group. Sturdy Group-1 furniture can carry Group-2 on top, but Group-2 can never carry anything.
 
@@ -250,9 +260,9 @@ High-level idea, following the paper's three-stage structure (simple blocks -> g
 
 **A block must never be allowed to grow to nearly the size of the container itself.** "Fits inside the container" on its own is not a strong enough stopping condition once the packing list can contain 20+ identical-size cartons on one line (this warehouse's real packing lists - Section 2.2 - routinely do; the paper's own benchmark instances did not, since BR/LN test cases rarely repeat one exact size more than a handful of times). Left unchecked, a column-building step that only checks "still fits" will keep adding boxes until the column spans nearly the whole container on that axis - a `1162 cm` column inside a `1199 cm`-long container is a real failure mode, not a hypothetical one: it consumes almost the entire usable length in one object, leaving Section 5.2's placement search almost nothing to work with once that one block is placed, which is a worse outcome than not combining those boxes into a block at all. A block that large also defeats the entire point of block generation (Section 5.1's own opening paragraph) - it isn't "fewer, more efficient objects to place," it's "one object that behaves like a wall," and walls that size were never something the constructive placement search was meant to receive as a single unit.
 
-The fix is a second stopping condition, checked independently of "does it fit": a configured `max_block_fraction` (Section 7, default 0.4) caps how far a merge may **grow** a block along any axis, relative to the container's own extent on that axis. A block is accepted only if it satisfies both conditions - fits inside the container **and** respects the growth cap on every axis - not just the first one.
+The fix is a second stopping condition, checked independently of "does it fit": a configured `max_block_fraction` (Section 7, default 0.2 for search; 0.4 for reporting) caps how far a merge may **grow** a block along any axis, relative to the container's own extent on that axis. A block is accepted only if it satisfies both conditions - fits inside the container **and** respects the growth cap on every axis - not just the first one.
 
-**The cap constrains growth, never a carton's own native size.** This distinction is the difference between a working fix and one that silently disables block generation for a large share of the catalog. A naive version of this check compares each axis's extent directly against `container.extent * max_block_fraction`, but on an axis a merge did not grow, the candidate's extent is simply its input's own unchanged dimension - and plenty of real cartons are individually larger than 40% of a container dimension on some axis (a 40HC's usable width is ~231 cm, so the 0.4 cap is ~92 cm, which a 110 cm-wide dining-table carton already exceeds on its own). Under the naive check, such a carton can never enter *any* block, in *any* stacking direction, because the offending axis is one that stacking along a different axis never changes. Measured on this warehouse's own catalog, the naive form disabled block generation for 9 of 30 SKU lines, covering 62 of 152 cartons - roughly 40% of a typical load left as individual boxes for a reason that has nothing to do with block size. `fits_bounds` below therefore compares against `max(container.extent * max_block_fraction, largest native input extent on that axis)`, so an un-grown axis always passes and the cap only ever bites on the axis a merge is actually extending:
+**The cap constrains growth, never a carton's own native size.** This distinction is the difference between a working fix and one that silently disables block generation for a large share of the catalog. A naive version of this check compares each axis's extent directly against `container.extent * max_block_fraction`, but on an axis a merge did not grow, the candidate's extent is simply its input's own unchanged dimension - and plenty of real cartons are individually larger than 20% (or 40%) of a container dimension on some axis (a 40HC's usable width is ~231 cm, so a 0.2 cap is ~46 cm, which a 110 cm-wide dining-table carton already exceeds on its own). Under the naive check, such a carton can never enter *any* block, in *any* stacking direction, because the offending axis is one that stacking along a different axis never changes. Measured on this warehouse's own catalog, the naive form disabled block generation for 9 of 30 SKU lines, covering 62 of 152 cartons - roughly 40% of a typical load left as individual boxes for a reason that has nothing to do with block size. `fits_bounds` below therefore compares against `max(container.extent * max_block_fraction, largest native input extent on that axis)`, so an un-grown axis always passes and the cap only ever bites on the axis a merge is actually extending:
 
 ```
 FUNCTION build_blocks(boxes, container, min_fill_ratio, max_block_fraction):
@@ -311,9 +321,9 @@ FUNCTION build_blocks(boxes, container, min_fill_ratio, max_block_fraction):
     # single merge, not just once at the end. Two already-valid,
     # already-capped columns can still combine into an object that
     # breaks both conditions - e.g. two columns each at exactly the
-    # 0.4 cap on the Y axis, placed side-by-side into a layer, sum to
-    # 0.8 on that axis, which may now exceed the container's own width
-    # outright, not just the fraction cap. A merge function that checks
+    # 0.2 cap on the Y axis, placed side-by-side into a layer, sum to
+    # 0.4 on that axis, which may now exceed the fraction cap (or container width)
+    # outright. A merge function that checks bounds only on its own two direct inputs
     # bounds only on its own two direct inputs and assumes the result
     # is safe by induction is exactly the bug this guide is correcting:
     # it is NOT safe by induction, because bounds are a property of the
@@ -504,7 +514,7 @@ FUNCTION combine_similar_sizes(blocks, min_fill_ratio, max_block_fraction):
     RETURN final
 ```
 
-**Choosing `max_block_fraction`**: the default of 0.4 means no single block may span more than 40% of the container's length, width, or height - comfortably large enough to still capture the point of block generation (a 20-box column of identical cartons becomes one object instead of 20, still a large win for search speed and shape regularity) while guaranteeing that even a worst-case single block can never consume more than 2 of the container's 5 usable "slots" along any one axis, leaving the placement search real room to interleave other boxes and blocks around it. This is a genuine tunable trade-off, not a fixed constant the way the paper's own 98% fill-ratio threshold is: a smaller fraction (e.g. 0.25) produces more, smaller blocks - closer to the paper's own typical block sizes, and safer against the "block behaves like a wall" failure mode - at the cost of a larger post-block-generation box list for the Genetic Algorithm (Section 5.3) to search over; a larger fraction pushes the opposite trade-off. **A block spanning 97% of the container's length (this section's opening example) is exactly the failure mode `max_block_fraction = 0.4` exists to prevent** - such a block would be rejected at Step 2 well before its column ever grew that large, and the 23-25 boxes that would have gone into it are instead split across multiple capped-size blocks (or left as smaller blocks/individual boxes), giving Section 5.2's placement search several objects to arrange around each other instead of one that dominates the container outright.
+**Choosing `max_block_fraction`**: the default search cap of 0.2 (`MAX_BLOCK_FRACTION`) means no single block may span more than 20% of the container's length, width, or height during GA search - comfortably large enough to still capture the benefits of block generation (a column of identical cartons becomes one object instead of many, providing large wins for search speed and geometric regularity) while guaranteeing that even a worst-case single block cannot monopolize more than 1/5th of the container extent on any axis. **Empirically tuned for real sample data**: earlier iterations used 0.4 (or 0.25), but testing across diverse furniture packing lists revealed that a 0.4 cap allowed blocks to grow into rigid, monolithic walls that dominated the container and blocked subsequent carton placements. Reducing the search cap to 0.2 produces smaller, modular blocks that pack tighter and leave ample extreme points accessible for interleaving other SKUs, measurably boosting the final fill rate without introducing instability. A separate looser threshold of `0.4` (`MAX_BLOCK_FRACTION_REPORT`) is retained for final report sanity bounds. **A block spanning 97% of the container's length (this section's opening example) is exactly the failure mode `max_block_fraction = 0.2` exists to prevent** - such a block is rejected early at Step 2 well before its column ever grows that large, and the boxes are split across multiple modular blocks or placed individually, giving Section 5.2's placement search several objects to arrange flexibly around each other.
 
 **Interaction with tolerance gap (Section 4.4, constraint 7)**: since boxes already carry the gap-inflated dimensions by the time this stage runs (Section 2.4 applies it at expansion, before any solving stage sees a box), columns/layers built here naturally inherit correct spacing between their constituent boxes with no extra work - a column of 5 gap-inflated boxes stacked edge-to-edge is already `Tolerance_Gap_cm` apart per pair in real space, the same as if Section 5.2 had placed them individually. Nothing about block generation needs to know tolerance gap exists, and the `max_block_fraction` check above is computed off the same already-gap-inflated dimensions, so it is measuring the block's true footprint in the container, not an optimistic pre-gap figure.
 
@@ -764,7 +774,7 @@ Repair makes the chromosome a *preference* the search optimizes rather than a co
 Following the paper's own evaluation function directly (paper Eq. 12-16), adapted to this system's objective ordering (Section 4.3: placing every carton strictly outranks fill rate, and fill rate strictly outranks balance/load-bearing refinement):
 
 ```
-E = sum of volume of every placed box/block in the plan     # paper Eq. 12
+E = sum of volume of every placed box/block in the plan (computed using inflated bounding-box dimensions, reflecting the space reserved by each placement inside the container; paper Eq. 12)
 
 B1, B2, B3 = center-of-gravity deviation on X, Y, Z, in cm    # Section 5.4.2, paper Eq. 13
 # Normalized to container size before use here - see the note below on
@@ -1083,7 +1093,7 @@ This is a sensible constructive order on its own (delivery order first when it m
 
 ## 6. Output
 
-Two artifacts are produced from the loading plan (visualization module), plus a console summary (entry-point module). A layer-by-layer walkthrough view (step through the container's height/depth one course at a time, as mentioned in Section 1.5's typical flow) is not implemented yet, but Section 6.3's data contract already carries everything such a view would need (each placement's position and dimensions) - it would be a new rendering step consuming the same loading-plan object, not a change to the solver.
+The loading plan produces an interactive 3D visualization with integrated step-by-step loading sequence playback controls (step through the container carton-by-carton in strict rear-to-door, floor-to-ceiling order), plus a plain-text pick list and console summary. Longitudinal layer slices (`layers`) are additionally computed along 50 cm X-axis bands from rear to door.
 
 ### 6.1 3D HTML visualization (default `outputs/loading_plan.html`, path configurable via command-line flag)
 
@@ -1096,18 +1106,15 @@ A single self-contained HTML file (three.js via CDN, no server needed). Built fr
 - **Every placed box rendered as a solid, semi-transparent, edged cuboid at its true position and dimensions - one cuboid per real, individual carton, never one cuboid per block.** This is the direct visual payoff of Section 5.2.4's explode step: a `Qty_Cartons` run of 24 identical boxes that Section 5.1 combined into one block for the search shows up here as 24 separate cuboids at their own true positions, exactly as a Supervisor or loading crew would need to see them to actually load or verify the container - not as one oversized cuboid that doesn't correspond to any single physical object.
 - Color mapping depends on shipment type (Section 4.5): for **FCL**, color is mapped to `Stacking_Group` exactly as before - one color for Group 1 (sturdy, load-bearing) and another for Group 2 (must not carry weight), so the stacking arrangement is visually verifiable at a glance. For **LCL**, color is instead mapped to `Customer_Code` (one distinct color per customer), since verifying that each customer's cargo is cleanly segmented front-to-back is the more operationally important check for a multi-stop load - `Stacking_Group` is still enforced by the solver either way, it just isn't what the color channel is spent showing when there's a more pressing thing to verify visually.
 - Orbit/zoom camera controls (drag to rotate, scroll to zoom).
+- **Sequential Loading Playback Controls**: An interactive step slider and playback bar (Play/Pause, Prev, Next, Reset, Show All) allows stepping through the container one box at a time in exact loading sequence (`customer_sequence, -x, z, y` — customer delivery order, rear wall to door, floor to ceiling, left to right). This provides the loading crew with a live progressive walkthrough directly in the primary 3D viewer without requiring a separate page.
 
 Side panel:
 
 - Container type name and dimensions (length x width x height, in cm).
 - **Shipment type badge**: "FCL" or "LCL" (Section 4.5's detection result), shown prominently since it changes what the color mapping above means and what the load sequence list below includes.
-- Stat tiles, in priority order per Section 4.3's objective (all cartons placed matters more than density): boxes placed / boxes unplaced (the unplaced count is the most prominent tile, not a middling one - shown in a warning color and visually largest/first when greater than 0, since this is the one number that tells the Supervisor whether the run actually succeeded), fill rate percent (secondary), weight used / max (kg), and center of gravity - `(gx, gy, gz)` against the container's ideal center with a pass/fail badge for the configured safe zone (Section 5.4.2), tertiary alongside fill rate since balance is itself a tie-breaking concern (Section 5.3.2), never traded against completeness.
-- Load sequence list: every placed box, in load order (the order the GA's final decode, Section 5.3.1, placed it). Each row shows: sequence number, a color swatch matching its 3D box, description, PO number, and its y position in cm. **For LCL**, each row additionally shows the customer code and a visual grouping/divider between customer segments, so the Supervisor can confirm at a glance that each customer's cargo forms one clean block rather than being interleaved.
+- Stat tiles, in priority order per Section 4.3's objective (all cartons placed matters more than density): boxes placed / boxes unplaced (the unplaced count is the most prominent tile, not a middling one - shown in a warning color and visually largest/first when greater than 0, since this is the one number that tells the Supervisor whether the run actually succeeded), fill rate percent (secondary, actual physical volume basis), weight used / max (kg), and center of gravity - `(gx, gy, gz)` against the container's ideal center with a pass/fail badge for the configured safe zone (Section 5.4.2), tertiary alongside fill rate since balance is itself a tie-breaking concern (Section 5.3.2), never traded against completeness.
+- Load sequence list: every placed box, in load sequence order (`customer_sequence, -x, z, y`). Each row shows: step number, a color swatch matching its 3D box, description, PO number, and its y position in cm. **For LCL**, each row additionally shows the customer code and a visual grouping/divider between customer segments, so the Supervisor can confirm at a glance that each customer's cargo forms one clean block rather than being interleaved.
 - **Center of gravity indicator**: the computed `(gx, gy, gz)` (Section 5.4.2) marked as a small crosshair inside the 3D viewport, alongside the container's ideal center - a quick visual check that the two are close together, in addition to the numeric stat tile below.
-
-It must have two pages, one for an overview, and one for detailed layer-to-layer from the deepest of the container to the door. On the second page, when workers finish loading a layer, the Supervisor can tick and render the next layer.
-
-This two-page structure is one of the concrete UI screens specified in Section 8 (System Architecture) - see Section 8.4, "Loading Plan Viewer", for how it fits into the overall web application, and Section 8.4's "Layer Walkthrough" screen for the tick-to-advance interaction in detail.
 
 ### 6.2 Console summary (entry-point module, printed after every run)
 
@@ -1124,8 +1131,7 @@ Boxes placed     : <n>
 Boxes unplaced   : <n>              # breakdown below when > 0 and shipment type is LCL
   - no space       : <n>
   - LIFO-blocked   : <n>
-Fill rate        : <pct>%           # secondary metric - see Section 4.3
-LIFO rejections  : <n>               # LCL only - candidates rejected only by the LIFO check; see 6.3
+Fill rate        : <pct>%           # secondary metric - see Section 4.3 (actual volume basis)
 Used weight      : <used> / <max> kg
 Center of gravity: (<gx>, <gy>, <gz>) cm   # <WITHIN SAFE ZONE | OUTSIDE SAFE ZONE> - see Section 5.4.2
 
@@ -1147,18 +1153,15 @@ Everything the output layer needs comes off one loading-plan object - **the expl
 |---|---|
 | container | The container this plan was packed against (Section 2.1) |
 | shipment_type | `"FCL"` or `"LCL"`, per Section 4.5's automatic detection |
-| placements | List of placed **individual boxes** (never blocks - Section 5.2.4 has already exploded every block placement by the time this object exists), in load order (the order the GA's final decode, Section 5.3.1, placed them, preserved through the explode step). Each placement carries `customer_code` alongside the fields already listed in Section 8.5's `run_placements` table, present (and meaningful) for LCL, constant for FCL |
+| placements | List of placed **individual boxes** (never blocks - Section 5.2.4 has already exploded every block placement by the time this object exists), sorted in strict loading sequence order by `(customer_sequence, -x, z, y)`: customer order, rear wall to door (-X), floor to ceiling (Z), left to right (Y), with sequential `step_index` numbers. Each placement carries `customer_code`, coordinates, and actual dimensions |
 | unplaced boxes | List of boxes that could not be placed anywhere, each tagged with why: `no_space` (failed on ordinary geometry/weight/stacking grounds) or `lifo_blocked` (would have fit if not for the LIFO check, LCL only - Section 5.2's `find_best_placement`) - always reported |
-| used volume | Sum of placed box volumes |
+| used volume | Sum of placed box actual volumes (computed using non-inflated physical dimensions) |
 | used weight | Sum of placed box weights |
-| fill rate | Used volume divided by container volume |
+| fill rate | Placed physical volume divided by container internal volume, computed strictly off actual (non-inflated) carton dimensions via exploded PlacedBox records. Note: The GA internal fitness function uses an inflated volume basis (+tolerance gap), which typically reads 3–4 percentage points higher in solver logs. Hard ceiling: cannot exceed (total actual carton volume in packing list) / (container usable volume) — documented as a TODO to surface this ceiling in future metric payloads |
 | center of gravity | `(gx, gy, gz)`, the plan's actual computed center of gravity (Section 5.4.2), plus whether it falls within the configured safe zone |
 | unload order | Placements reversed; the practical unload sequence (last box in is the first one accessible at the door) |
-| lifo_rejections | Count of candidate placements rejected specifically by the LIFO check (Section 5.2's `find_best_placement`) during the final decode - `null`/absent for FCL, a non-negative integer for LCL. See the note below for what it's for. |
 
 **To change the output format**: everything downstream reads from this loading-plan object only. Add new fields there first if new data is needed, then extend the relevant rendering step (HTML or text) in the visualization module to surface it.
-
-**Making LIFO's fill-rate cost visible, not just its result**: Section 4.5 notes that LIFO is a genuine constraint on the search space for LCL runs - some placements that would improve fill rate are rejected outright because they'd block an earlier customer's cargo. A Supervisor comparing an LCL run's fill rate against a typical FCL run for a similarly-sized packing list should be able to tell *why* it's lower, rather than reading it as the solver simply doing a worse job. `lifo_rejections` (the table row above) is how: it counts every candidate placement rejected specifically by Section 5.2's LIFO check - as opposed to rejected by ordinary geometry/weight/stacking grounds - during the final decode (Section 5.3.1), alongside `boxes_placed`/`boxes_unplaced` rather than requiring a separate constraint or search behavior to compute. A high count is a direct, visible explanation for a lower-than-usual fill rate on an LCL run.
 
 
 
@@ -1171,9 +1174,9 @@ Everything the output layer needs comes off one loading-plan object - **the expl
 | Parameter | Default | Effect |
 |---|---|---|
 | Tolerance gap | 2 cm | Minimum clearance enforced between adjacent boxes and between boxes and container walls, in X/Y only (Section 4.4, constraint 7) |
-| Minimum support ratio | 0.8 | Min. fraction of footprint that must be supported to stack (1.0 = no overhang); paper's own baseline is 0.5 (Section 4.4, constraint 4a) |
+| Minimum support ratio | 0.6 | Min. fraction of footprint that must be supported to stack (1.0 = no overhang); tuned empirically for furniture stability (Section 4.4, constraint 4a; paper baseline is 0.5) |
 | Block similar-size fill ratio | 0.98 | Min. actual-cargo-volume fraction a general block of similar-sized items must reach to be accepted (Section 5.1, paper's own value) |
-| Max block fraction (`max_block_fraction`) | 0.4 | Caps any single block's extent, on any axis, at this fraction of the container's own extent on that axis (Section 5.1) - prevents a large `Qty_Cartons` run of identical-size boxes from combining into one block that spans nearly the whole container; a genuine tunable trade-off between block-generation's speed/regularity benefit and leaving the placement search enough separate objects to interleave |
+| Max block fraction (`max_block_fraction`) | 0.2 search / 0.4 report | Caps any single block's extent at this fraction of container extent during GA search (0.2) to prevent rigid walls and leave room for placement search; 0.4 retained for reporting (Section 5.1) |
 | Score weight - residual volume | 1.0 | Weight on (negative) wasted residual volume in placement scoring (Section 5.2.1) |
 | Score weight - contact ratio | 1.0 | Weight on contact-area ratio in placement scoring (Section 5.2.1, paper Eq. 11) |
 | Max load-bearing default | very large (effectively unlimited) | Used when `Max_Load_Bearing_kg` is blank for an item (Section 2.3, Section 5.4.1) |
@@ -1182,29 +1185,29 @@ Everything the output layer needs comes off one loading-plan object - **the expl
 
 | Parameter | Default | Effect |
 |---|---|---|
-| GA population size | 30 | Number of individuals per generation (Section 5.3.5). The paper uses 100, tuned for its own BR/LN benchmark instances; 30 is this system's default - see the runtime note below |
-| GA max generations | 40 | Upper bound on generations (Section 5.3.5). The paper uses 100; with early stopping below, most runs finish well short of this either way |
-| GA early-stop patience | 10 | Stop once the best fitness has not improved by at least `Minimum improvement threshold` for this many consecutive generations (Section 5.3.5) - reuses the `stagnant_generations` counter that already drives the dynamic mutation rate |
-| Minimum improvement threshold | 0.01 | The smallest fitness gain, in a single generation or from one Simulated Annealing invocation, that counts as real progress for early-stop purposes (Section 5.3.5). Smaller gains still update `best_fitness`, they just don't reset the patience counter - without this, SA's frequent sub-threshold finds can indefinitely postpone early stopping (a simulated converged run kept going to generation 135 against a patience of 10 before this fix) |
+| GA population size | 60 backend / 30 UI | Number of individuals per generation (Section 5.3.5). Backend `config.py` default is 60; frontend UI wizard sends 30 for responsive execution |
+| GA max generations | 100 backend / 40 UI | Upper bound on generations (Section 5.3.5). Backend `config.py` default is 100; frontend UI wizard sends 40 for interactive speed |
+| GA early-stop patience | 40 | Stop once the best fitness has not improved by at least `Minimum improvement threshold` for this many consecutive generations (`config.py`) |
+| Minimum improvement threshold | 0.01 | Smallest fitness gain in a generation or from SA that resets patience counter (Section 5.3.5) |
 | GA crossover probability | 0.7 | Probability multi-point crossover fires on a selected parent pair (Section 5.3.3(2), paper default) |
-| GA mutation rate - base | 0.05-0.5 | Starting range for the dynamic mutation rate (Section 5.3.3(3), paper default range) |
-| GA mutation rate - floor | 0.05 | Minimum the dynamic mutation rate can cool down to on sustained improvement (paper default) |
-| GA mutation rate - ceiling | 0.50 | Maximum the dynamic mutation rate can heat up to on sustained stagnation (paper default) |
+| GA mutation rate - base | 0.25 | Starting mutation probability for the dynamic mutation rate (`config.py`) |
+| GA mutation rate - floor | 0.10 | Minimum the dynamic mutation rate can cool down to on sustained improvement (`config.py`) |
+| GA mutation rate - ceiling | 0.50 | Maximum the dynamic mutation rate can heat up to on sustained stagnation (`config.py`) |
 | GA elite fraction | 0.10 | Fraction of each generation copied unchanged into the next (elite retention, Section 5.3.3(1)) |
-| Unplaced rank weight | 2.0 | Guarantees placing one more carton always outranks any fill-rate-or-balance difference in the GA's fitness (Section 5.3.2) - not a tunable trade-off; keep above 1.0 |
-| Infeasible penalty | `-(total_box_count * 2.0) - 1000`, computed per run | Additive penalty applied when B4 or B5 fails (Section 5.3.2). Not a dial: it only has to be more negative than the worst feasible fitness so an infeasible plan can never outrank a feasible one. Must be computed from the run's own box count, not hard-coded |
-| CoG penalty weight (`cog_weight`) | 0.3 | Weight on the *normalized* center-of-gravity deviation penalty `(B1_norm+B2_norm+B3_norm)` in the fitness function (Section 5.3.2, paper Eq. 16) - a genuine tunable trade-off between balance and fill rate among equally-complete plans; keep under `Unplaced rank weight / 3` (≈0.67 at current defaults, Section 5.4.3) so the worst-case penalty can never outweigh a single unplaced box |
-| SA interval | every 5 generations | How often Simulated Annealing is invoked as a local operator on the GA's best individual (Section 5.3.4, paper default) |
-| SA initial temperature | 100 °C | Starting SA temperature (ignored if auto-tune is enabled; paper default) |
-| SA minimum temperature | 1 °C | Temperature at which the SA local-search loop stops (paper default) |
-| SA cooling rate | 0.9 | Per-iteration geometric cooling multiplier (paper default) |
-| CoG safe-zone tolerance (`x/y_tolerance_min/max`, `z_tolerance_max`) | ± 5% of length/width; +10% of height | Bounds defining the safe zone around the container's ideal center of gravity (Section 5.4.2, paper's `conx1/conx2`, `cony1/cony2`, `conz1`) |
+| Unplaced rank weight | 2.0 | Guarantees placing one more carton always outranks any fill-rate-or-balance difference in GA fitness (Section 5.3.2) - keep above 1.0 |
+| Infeasible penalty | `-(total_box_count * 2.0) - 1000`, computed per run | Additive penalty applied when B4 or B5 fails (Section 5.3.2). Computed dynamically from the run's own box count |
+| CoG penalty weight (`cog_weight`) | 0.3 | Weight on normalized center-of-gravity deviation penalty `(B1_norm+B2_norm+B3_norm)` in fitness function (Section 5.3.2) |
+| SA interval | every 5 generations | How often Simulated Annealing is invoked as a local operator on the GA's best individual (Section 5.3.4) |
+| SA initial temperature | 100.0 °C | Starting SA temperature (`config.py`, paper default) |
+| SA minimum temperature | 1.0 °C | Temperature at which the SA local-search loop stops (`config.py`, paper default) |
+| SA cooling rate | 0.9 | Per-iteration geometric cooling multiplier (`config.py`, paper default) |
+| CoG safe-zone tolerance (`COG_TOLERANCE_XY/Z`) | ± 5% length/width; +10% height | Bounds defining the safe zone around the container's ideal center of gravity (Section 5.4.2) |
 
-All are overridable via command-line flags on the entry-point module.
+All are overridable via command-line flags, environment variables, or API request options.
 
-**Runtime budget - why the GA defaults above are smaller than the paper's.** The paper's own settings (population 100, 100 generations) cost about **10,880 full `decode()` calls** per run: 10,000 from the GA itself, plus SA firing every 5 generations (20 times) for 44 iterations each under the listed temperature schedule (100 -> 1 at x0.9). Each decode places every block/box through the full Placeable Point Strategy (Section 5.2), and in pure Python over a 150-200 carton shipment (Section 2.2) that lands in the tens-of-minutes-to-hours range - far past what a Supervisor waiting on a loading plan will tolerate.
-
-This system's defaults (population 30, 40 generations, early-stop patience 10) cut that to **1,552 decodes worst case, and ~670 on a typical run that converges around generation 18** - roughly 7x and 16x reductions respectively:
+**Runtime budget and dual defaults**: Notice that two sets of GA defaults exist in the codebase:
+1. **Backend Defaults (`config.py`)**: `POPULATION_SIZE = 60`, `GENERATIONS = 100`, `EARLY_STOP_PATIENCE = 40`. Used when runs are invoked directly via backend scripts or API calls without explicit `RunOptions`.
+2. **Frontend UI Defaults (`RunWizard.tsx`)**: `population_size = 30`, `generations = 40`. Pre-populated in the UI's Advanced Configuration collapse so that a Supervisor running an interactive plan receives results within 30–45 seconds rather than waiting several minutes. Users can expand the options panel to adjust these values up to the full backend defaults if higher search effort is desired.
 
 | One decode takes | Worst case (no early stop) | Typical (converges ~gen 18) |
 |---|---|---|
@@ -1241,7 +1244,8 @@ Sections 1-7 describe the solver as a standalone, offline computation: read 3 CS
 |  Packing List   Item Master    Container   Solver Run   Loading  |
 |    Editor         Editor         Picker      Trigger    Plan     |
 |                                                          Viewer   |
-|                                                       (3D + Layer |
+|                                                       (3D +       |
+|                                                        Sequential |
 |                                                        Walkthrough)|
 +---------------------------+---------------------------------------+
                             | HTTP (REST) + WebSocket (job status)
@@ -1252,9 +1256,10 @@ Sections 1-7 describe the solver as a standalone, offline computation: read 3 CS
 |   Routers:  /containers  /items  /packing-lists  /runs           |
 |                                                                   |
 |   Job Queue / Background Worker                                  |
-|     -> wraps the EXISTING Section 3 pipeline unchanged:          |
+|     -> wraps the Section 3 pipeline:                             |
 |        Parse & Join -> Initial Sort -> Constructive Heuristic    |
-|        -> (optional) Simulated Annealing -> Loading Plan object  |
+|        -> Genetic Algorithm (SA) -> Compaction Pass              |
+|        -> Loading Plan object                                    |
 |                                                                   |
 |   Serialization layer:                                           |
 |     -> Loading Plan object (Section 6.3) => JSON for the API     |
@@ -1283,37 +1288,45 @@ The solver core (the box in the middle labeled "wraps the EXISTING Section 3 pip
 Containers
   GET    /containers                 list the container catalog (Section 2.1)
   POST   /containers                 add a container spec
-  GET    /containers/{id}            fetch one
+  GET    /containers/{container_id}  fetch one
+  PUT    /containers/{container_id}  update container dimensions/max weight
+  DELETE /containers/{container_id}  remove container
+  POST   /containers/upload-csv      bulk import container specifications from CSV
 
 Items (item_master, Section 2.3)
   GET    /items                      list all carton types
   POST   /items                      add a new item
   GET    /items/{item_id}            fetch one
   PUT    /items/{item_id}            update dimensions/weight/stacking/etc.
-  DELETE /items/{item_id}            remove (only if unreferenced by any packing list)
+  DELETE /items/{item_id}            remove item
+  POST   /items/upload-csv           bulk import carton types from CSV
 
 Packing Lists (Section 2.2)
   GET    /packing-lists              list uploaded/created packing lists
-  POST   /packing-lists              create one (paste rows, or see CSV upload below)
-  POST   /packing-lists/upload       upload a CSV matching Section 2.2's schema; validated
-                                      against Section 2.2/2.3's rules before it's accepted
-  GET    /packing-lists/{id}         fetch one, with its lines expanded and joined
-                                      against item_master (Section 2.4's row-to-box join,
-                                      but surfaced here for the Supervisor to review BEFORE
-                                      committing to a run - catches bad data early)
+  POST   /packing-lists              create one (paste rows or structured lines)
+  POST   /packing-lists/upload-csv   upload and validate a CSV matching Section 2.2's schema
+  POST   /packing-lists/upload-csv-and-save  upload, validate, and persist packing list
+  POST   /packing-lists/validate     validate raw packing list lines against item master
+  POST   /packing-lists/validate-csv validate uploaded CSV data
+  GET    /packing-lists/{id}         fetch one, with lines expanded and joined
+                                      against item_master (surfaced for Supervisor review
+                                      before committing to a run)
   PUT    /packing-lists/{id}         edit lines
-  DELETE /packing-lists/{id}
+  DELETE /packing-lists/{id}         delete packing list
 
 Runs (a solver invocation against one packing list + one container)
   POST   /runs                       body: {packing_list_id, container_id, options}
                                       -> immediately returns {run_id, status: "queued"}
+  POST   /runs/quick                 one-step run creation with embedded items/container
   GET    /runs/{run_id}              -> {status: "queued"|"running"|"done"|"failed",
                                           progress (see below), result (once done)}
   GET    /runs/{run_id}/result       -> the full Loading Plan (Section 6.3) as JSON
-  GET    /runs/{run_id}/pick-list    -> the text pick list (Section 6.2), for printing
+  GET    /runs/{run_id}/pick-list    -> the formatted text pick list (Section 6.2), for printing
   GET    /runs                       list past runs (filterable by packing list, container,
                                       date range) - this is what makes "what did we ship
                                       last Tuesday" (Section 8.1) answerable
+  DELETE /runs/{run_id}              delete a past run record (returns 204 No Content;
+                                      returns 409 Conflict if run is currently running)
   WS     /runs/{run_id}/ws           WebSocket: pushes status/progress updates as they
                                       happen, so the frontend doesn't have to poll (below)
 ```
@@ -1332,21 +1345,17 @@ Runs (a solver invocation against one packing list + one container)
 
 **Screen list**:
 
-1. **Item Master editor** - a table view over `GET/POST/PUT/DELETE /items`, mirroring `item_master.csv`'s columns (Section 2.3) as form fields, with the same validation rules (Section 2.3) surfaced as inline field errors rather than a rejected request the user has to decode.
+1. **Item Master editor** - a table view over `GET/POST/PUT/DELETE /items`, mirroring `item_master.csv`'s columns (Section 2.3) as form fields, with the same validation rules (Section 2.3) surfaced as inline field errors rather than a rejected request the user has to decode. Supports CSV bulk import (`POST /items/upload-csv`) and multi-select bulk deletion.
 
-2. **Packing List editor / uploader** - either paste/build rows directly against `POST /packing-lists`, or drag-and-drop a CSV matching Section 2.2's schema to `POST /packing-lists/upload`. After upload, show the resolved join against `item_master` (dimensions, weight, stacking group per line) so the Supervisor can visually sanity-check the shipment - e.g. spot a suspiciously heavy line - before spending a solver run on it. **Also surface the FCL/LCL detection result (Section 4.5) here**, immediately after upload/paste - a distinct-`Customer_Code`-count badge ("FCL" or "LCL - N customers") - so the Supervisor knows before running whether LIFO will apply, rather than discovering it only after the run completes. If LCL, the preview table should visually group/order rows by customer in the order they'll be delivered (i.e. the order they already appear in the file, per Section 2.2/4.5), so an accidentally-interleaved upload (customer A, B, A, B instead of A, A, B, B) is visible and fixable before it reaches the solver.
+2. **Packing List editor / uploader** - either paste/build rows directly against `POST /packing-lists`, or drag-and-drop a CSV matching Section 2.2's schema to `POST /packing-lists/upload-csv`. After upload, show the resolved join against `item_master` (dimensions, weight, stacking group per line) so the Supervisor can visually sanity-check the shipment - e.g. spot a suspiciously heavy line - before spending a solver run on it. Includes multi-select bulk deletion of saved packing lists. **Also surface the FCL/LCL detection result (Section 4.5) here**, immediately after upload/paste - a distinct-`Customer_Code`-count badge ("FCL" or "LCL - N customers") - so the Supervisor knows before running whether LIFO will apply, rather than discovering it only after the run completes. If LCL, the preview table should visually group/order rows by customer in the order they'll be delivered (i.e. the order they already appear in the file, per Section 2.2/4.5), so an accidentally-interleaved upload (customer A, B, A, B instead of A, A, B, B) is visible and fixable before it reaches the solver.
 
-3. **Container picker** - a simple dropdown/list over `GET /containers`, reflecting Section 2.1's "Supervisor selects the container per the Booking Notes before the solver runs" step (Section 1.3). This is a selection UI, never a multi-select or "let the system choose" control, since Section 1.3 is explicit that container choice is fixed upstream, not searched over by the solver.
+3. **Container picker / catalog** - a dropdown/list over `GET /containers`, reflecting Section 2.1's "Supervisor selects the container per the Booking Notes before the solver runs" step (Section 1.3). Includes container specification management (`POST/PUT/DELETE /containers`, CSV upload `POST /containers/upload-csv`, and multi-select bulk deletion). In the Run Wizard, this acts as a single-selection UI, never a multi-select or "let the system choose" control, since Section 1.3 is explicit that container choice is fixed upstream, not searched over by the solver.
 
-4. **Run Trigger + Status** - a "Run" button that calls `POST /runs` with the selected packing list + container (+ optionally the GA generation/population counts and the tolerance gap value, from Section 7's tunable parameters, exposed as an "Advanced options" collapse rather than surfaced by default, since most day-to-day runs shouldn't need them touched). Simulated Annealing is not a separate on/off toggle here, since it has no standalone mode (Section 5.3) - it is always embedded in the Genetic Algorithm's run, invoked automatically every `SA interval` generations. This transitions into the progress view described in Section 8.3 (indeterminate spinner during the Block Generation phase, then a generation-by-generation progress bar once the Genetic Algorithm starts). This screen owns the polling or WebSocket subscription (Section 8.3) and is the only screen that needs to know a run is "in flight."
+4. **Run Trigger + Status** - a "Run" button that calls `POST /runs` with the selected packing list + container (+ optionally the GA generation/population counts and the tolerance gap value, from Section 7's tunable parameters, exposed as an "Advanced options" collapse rather than surfaced by default, since most day-to-day runs shouldn't need them touched). Note that the frontend wizard defaults to 30 population and 40 generations for fast interactive response, whereas direct backend API calls default to 60 population and 100 generations (Section 7). Simulated Annealing is not a separate on/off toggle here, since it has no standalone mode (Section 5.3) - it is always embedded in the Genetic Algorithm's run, invoked automatically every `SA interval` generations. This transitions into the progress view described in Section 8.3 (indeterminate spinner during the Block Generation phase, then a generation-by-generation progress bar once the Genetic Algorithm starts). This screen owns the polling or WebSocket subscription (Section 8.3) and is the only screen that needs to know a run is "in flight."
 
-5. **Loading Plan Viewer** - the screen Section 6.1 already specifies the content for; this is where that content lives in the web app instead of a standalone HTML file. **Two pages**, exactly as Section 6.1 requires:
+5. **Loading Plan Viewer** - the screen Section 6.1 already specifies the content for; this is where that content lives in the web app instead of a standalone HTML file. Rather than splitting into disconnected tabs, the viewer provides an integrated 3D viewport accompanied by step-by-step sequential loading playback controls (current step counter, Play/Pause, Step Forward/Back buttons, and a timeline scrubber). As the supervisor advances through the sequence, boxes appear strictly in loading order: rear-to-door, floor-to-ceiling, left-to-right within depth (Section 6.3). An interactive side panel displays run metrics (actual physical fill rate, cartons placed/unplaced, weight used), container metadata, and the full scrollable placement table.
 
-   - **Overview page**: the full 3D scene at once - every placed box, colored by `Stacking_Group` (FCL) or `Customer_Code` (LCL), per Section 6.1's shipment-type-dependent color mapping - the door panel, the shipment-type badge, the stat tiles (fill rate, boxes placed/unplaced, weight used/max, plus `lifo_rejections` when LCL), and the load-sequence list (with customer grouping when LCL) - all sourced from one `GET /runs/{run_id}/result` call. This is a like-for-like port of Section 6.1's existing content into a page that reads from the API instead of being pre-rendered into a static file.
-
-   - **Layer Walkthrough page**: steps through the container one layer at a time, **floor first, then progressively higher courses** - a "layer" here is a Z-height band (all boxes whose z falls within the current band are shown), since that is how a loading crew actually builds up a container physically. The Supervisor has a "Layer complete, next layer" control; ticking it advances the view to reveal the next layer's boxes rather than showing everything at once. Within a layer, boxes are still rendered at their true x/y position, so the crew can see depth-from-door (x, per Section 4.1's door-at-x=0 convention) and left/right placement (y) exactly as they'll encounter it while loading. This is a pure rendering/UI-state feature - it needs no new backend endpoint beyond the same `GET /runs/{run_id}/result` the Overview page already calls, since Section 6.3's placement data (each box's x, y, z, and dimensions) already contains everything needed to group boxes into layers and reveal them incrementally; the layering logic lives entirely in the frontend.
-
-6. **Run History** - a table over `GET /runs`, filterable by packing list, container, and date range, answering the "what did we ship last Tuesday" question from Section 8.1. Each row links to that run's Loading Plan Viewer (screen 5) and its pick list (`GET /runs/{run_id}/pick-list`, Section 6.2) for reprinting.
+6. **Run History** - a table over `GET /runs`, filterable by packing list, container, and date range, answering the "what did we ship last Tuesday" question from Section 8.1. Each row links to that run's Loading Plan Viewer (screen 5) and its pick list (`GET /runs/{run_id}/pick-list`, Section 6.2) for reprinting. Includes single-run and multi-select bulk deletion (`DELETE /runs/{run_id}`), with an explicit client and server safeguard preventing deletion of runs currently in progress (`status === 'running'`).
 
 **What stays out of scope for this prototype** (candidate Phase-2 UI work, not addressed here): user accounts/authentication, multi-warehouse or multi-tenant support, editing a loading plan by hand after the solver produces it (drag-and-drop box repositioning), and side-by-side comparison of two runs against the same packing list. None of these change Sections 2-7's solver contract if added later - they are all screens or endpoints layered on top of the same `LoadingPlan` object and `runs` table (Section 8.5).
 
@@ -1430,16 +1439,15 @@ CREATE TABLE runs (
     status             TEXT NOT NULL CHECK (status IN ('queued','running','done','failed')),
     shipment_type      TEXT CHECK (shipment_type IN ('FCL','LCL')),  -- NULL until detected at Step 1 (Section 4.5); set before solving starts
     customer_count     INTEGER,             -- distinct Customer_Code count that produced shipment_type; 1 (or NULL) for FCL
-    ga_population_size     INTEGER NOT NULL DEFAULT 100,   -- Section 5.3.5 / Section 7 default
-    ga_max_generations     INTEGER NOT NULL DEFAULT 100,   -- Section 5.3.5 / Section 7 default
+    ga_population_size     INTEGER NOT NULL DEFAULT 60,    -- Section 5.3.5 / Section 7 backend default (UI defaults to 30)
+    ga_max_generations     INTEGER NOT NULL DEFAULT 100,   -- Section 5.3.5 / Section 7 backend default (UI defaults to 40)
     sa_interval_generations INTEGER NOT NULL DEFAULT 5,    -- how often SA runs as a local operator (Section 5.3.4) / Section 7 default
     cog_penalty_weight      REAL NOT NULL DEFAULT 0.3,     -- Section 5.3.2 / Section 7 default
     tolerance_gap_cm   REAL NOT NULL DEFAULT 2.0,  -- Section 4.4 constraint 7 / Section 7 default
-    fill_rate          REAL,                -- NULL until status = 'done' (Section 6.3)
+    fill_rate          REAL,                -- NULL until status = 'done' (Section 6.3, actual physical volume basis)
     used_weight_kg     REAL,
     boxes_placed       INTEGER,
     boxes_unplaced     INTEGER,
-    lifo_rejections    INTEGER,             -- NULL for FCL; count of placements rejected specifically by the LIFO check (Section 6.3's fill-rate-cost note), for LCL
     center_of_gravity_x_cm REAL,            -- (gx, gy, gz) from the final decode (Section 5.4.2), NULL until status = 'done'
     center_of_gravity_y_cm REAL,
     center_of_gravity_z_cm REAL,
@@ -1511,27 +1519,61 @@ Not a rigid dependency graph - a suggested sequence that keeps something demoabl
 1. **Wrap the existing solver in one API endpoint first**, even synchronous (`POST /solve` that blocks and returns JSON) - this proves the FastAPI-around-Python-solver integration (Section 8.1's core architectural bet) works at all, before spending time on the job-queue machinery in Section 8.3.
 2. **Add the database and CRUD endpoints** for containers/items/packing-lists (Section 8.5, 8.3) - this is what lets the frontend stop hard-coding a test packing list and start reading/writing real data.
 3. **Convert the solve endpoint to the asynchronous job pattern** (Section 8.3) once the synchronous version is proven - add the `runs` table, background task, polling endpoint.
-4. **Build the frontend screens in the order a Supervisor would actually touch them**: Item Master editor -> Packing List editor -> Container picker -> Run Trigger -> Loading Plan Viewer Overview page -> Layer Walkthrough page -> Run History. This order also happens to move from "simplest CRUD screen" to "most novel UI work" (the 3D viewer), which is a reasonable way to de-risk a limited-time project - the parts most likely to take longer than expected come last, once everything they depend on already exists.
+4. **Build the frontend screens in the order a Supervisor would actually touch them**: Item Master editor -> Packing List editor -> Container picker -> Run Trigger -> Loading Plan Viewer (3D + Sequential Walkthrough) -> Run History. This order also happens to move from "simplest CRUD screen" to "most novel UI work" (the 3D viewer), which is a reasonable way to de-risk a limited-time project - the parts most likely to take longer than expected come last, once everything they depend on already exists.
 5. **WebSocket progress push** (Section 8.3) is explicitly last, and optional - only worth doing if polling turns out to feel sluggish once the rest of the system is working end-to-end.
 
 Notably absent from this list: any deployment/hosting step. Since Section 8.6 fixes this as a single local machine with no internet exposure, there is nothing to provision, containerize, or put behind a domain - running `uvicorn` and opening a browser to `localhost` is the entire "deployment."
 
 ---
 
-## 9. Ideas Beyond the Paper (Not Yet Implemented)
+## 9. Extensions Beyond the Paper
 
-Everything in Section 5 - Block Generation, the Improved Placeable Point Strategy with corner-first seeding and contact-ratio scoring, the Genetic Algorithm with elitism and dynamic mutation, and Simulated Annealing as its embedded local operator - is part of the one target algorithm this guide specifies, adapted directly from the source paper, and is in scope for full implementation, not a future phase. This section is different: it is a scratchpad for ideas that go **beyond** what the paper itself does, kept separate precisely because they are optional refinements on top of the complete paper-based algorithm, not part of it. None of this is required for the system to match the paper; all of it is here only in case a specific shortfall shows up in practice and is worth spending extra complexity to fix.
+Everything in Section 5 - Block Generation, the Improved Placeable Point Strategy with corner-first seeding and contact-ratio scoring, the Genetic Algorithm with elitism and dynamic mutation, and Simulated Annealing as its embedded local operator - is part of the core target algorithm this guide specifies, adapted directly from the source paper. This section covers extensions that go **beyond** what the paper itself does: subsections 9.1 through 9.4 discuss proposed future refinements, while subsection 9.5 documents the post-processing compaction pass that has been fully implemented.
 
-### 9.1 LIFO-aware neighbor moves for Simulated Annealing
+### 9.1 LIFO-aware neighbor moves for Simulated Annealing (Proposed)
 
 Section 5.3.4's Simulated Annealing operator perturbs posture only, never box/block order, because Initial Sort (Section 5.5) fixes processing order once, up front, and the paper's own GA encoding (Section 5.3.1) never searches over it. This is simpler than an order-searching metaheuristic and sidesteps any risk of SA breaking the customer-segment structure Section 4.5's LIFO design depends on - but it also means SA can never discover a cross-customer reordering that would in fact be LIFO-safe and would improve overall fill rate. For instance, a single small box belonging to an earlier customer that geometrically could sit just in front of a later customer's cargo without ever blocking it (Section 4.5's precise X/Z-overlap test, not merely "any later box exists behind it") is never considered, because box order isn't part of the search space at all.
 
 A future extension could add a second, order-aware neighbor move - available only when LCL is active - that proposes a same-customer-segment reordering (not a cross-segment move, which would still need to respect delivery sequence) and evaluates it through the same fitness function (Section 5.3.2). This would only ever be a refinement on top of the paper's own posture-only encoding, layered in as an additional move type SA can pick from, not a replacement for it - and it adds real complexity (every proposed neighbor state would need a full LIFO feasibility check, not just "is this still posture-only"), so it's worth building only if LCL fill rates in practice turn out meaningfully worse than the FCL baseline.
 
-### 9.2 Multiple container types per run
+### 9.2 Multiple container types per run (Proposed)
 
-Section 3.2 already notes that comparing multiple container types would sit as a wrapper *around* the existing single-container pipeline (Steps 1-5) - run the same pipeline once per candidate container, then compare the resulting plans - rather than as a change to the pipeline itself. This remains unimplemented and would only become relevant if the Supervisor's own container-selection step (Section 1.3) is ever replaced with a system recommendation instead of a manual choice from Booking Notes.
+Section 3.2 already notes that comparing multiple container types would sit as a wrapper *around* the existing single-container pipeline (Steps 1-6) - run the same pipeline once per candidate container, then compare the resulting plans - rather than as a change to the pipeline itself. This remains unimplemented and would only become relevant if the Supervisor's own container-selection step (Section 1.3) is ever replaced with a system recommendation instead of a manual choice from Booking Notes.
 
-### 9.3 Editable loading plans and run comparison
+### 9.3 Editable loading plans and run comparison (Proposed)
 
 Flagged already in Section 8.4's "what stays out of scope" note: letting a Supervisor manually drag-and-drop reposition a box after the solver produces a plan, and viewing two runs against the same packing list side by side. Both are pure UI/data-layer additions on top of the existing `LoadingPlan` object and `runs` table (Section 8.5) - they do not require any change to Section 5's algorithm, since they operate on a plan the algorithm has already produced.
+
+### 9.4 Tracking LIFO fill-rate cost (lifo_rejections metric - Proposed)
+
+In LCL runs, LIFO constraints require that cargo for stop $k$ never obstructs cargo for an earlier stop $k' < k$ along the unload path toward the container door ($x = 0$). During decoding, candidate extreme points that are geometrically valid, stably supported, and within weight and load-bearing limits may still be rejected solely because they violate LIFO sequencing.
+
+In early design discussions and earlier drafts of this guide, a `lifo_rejections` metric was proposed to track the cumulative count of placement candidates rejected specifically by the LIFO check. The rationale is to give the Supervisor a clear, quantifiable measure of the "cost of LIFO": if an LCL run achieves an 80% fill rate with 45 LIFO rejections, the Supervisor immediately understands that the unplaced cartons were blocked by delivery order constraints, not by container volume or weight limits. This visibility could help decide whether to split a shipment into two containers or rearrange stop sequences with the carrier.
+
+**Status**: Not yet implemented. The current solver tracks unplaced reasons at the item level (`"no_space"` vs. `"lifo_blocked"` in `unplaced_boxes`), but does not expose an aggregate `lifo_rejections` counter in the database schema (`Run` model) or the API output (`calculate_metrics`). To implement this proposal in a future release:
+1. Instrument `find_best_placement` in `backend/app/solver/placement.py` to count every candidate point that passes geometric, weight, and stability checks but fails `check_lifo_validity`.
+2. Add `lifo_rejections: Optional[int] = None` to `RunMetrics` in `backend/app/core/models.py`.
+3. Propagate the count through `calculate_metrics()` in `backend/app/solver/output.py` and display it conditionally on LCL runs in the Loading Plan Viewer.
+
+### 9.5 Post-Processing Compaction Pass (Implemented)
+
+The source paper uses an Improved Placeable Point Strategy (Section 5.2) where items are sequentially placed at candidate coordinate points derived from box corners. While effective, greedy placement can leave fragmented, uncoordinated gaps between placed cartons and the container rear or side walls, especially after hundreds of heuristic decodes.
+
+To recover these gaps, a **post-processing compaction pass** ([compaction.py](file:///d:/Projects/3D-CL-DSS/backend/app/solver/compaction.py)) was implemented as Step 5 of the solver pipeline ([pipeline.py](file:///d:/Projects/3D-CL-DSS/backend/app/solver/pipeline.py)), executing immediately after the Genetic Algorithm finishes and before final metrics are computed.
+
+#### 1. Compaction Algorithm
+The compaction pass runs deterministically in three stages:
+1. **Rear-Wall Sliding (+X)**:
+   Placed boxes are iterated from rear-most to front-most (descending `max_x`). Each box is slid toward the rear wall ($x_{\text{max}} = L - \text{box length}$) as far as possible without colliding with any blocking neighbor box (evaluated by overlapping intervals in both $Y$ and $Z$) or the container rear boundary. In LCL mode, cargo for an earlier customer $k'$ is constrained so its $x$ coordinate cannot exceed the minimum $x$ of any deeper customer $k > k'$, strictly preserving LIFO unloading feasibility.
+2. **Side-Wall Sliding (Min-Y)**:
+   Placed boxes are iterated from left-most to right-most (ascending `min_y`). Each box is slid toward the left container wall ($y = 0$) until it contacts a blocking neighbor (overlapping in both $X$ and $Z$) or the wall boundary.
+3. **Extreme Point Regeneration & Re-scan**:
+   Sliding boxes creates consolidated, contiguous open space near the container door ($x = 0$) and right wall ($y = W$). The pass regenerates 3D candidate extreme points across the compacted layout, sorts them, and iterates through previously unplaced cartons (sorted **smallest-volume-first**). Each unplaced carton is evaluated against geometry, weight capacity, and support constraints. If a fit is found, the carton is inserted into the plan, its extreme points are merged, and the process repeats.
+
+#### 2. Measured Impact
+The compaction pass is verified by automated unit tests in [test_compaction.py](file:///d:/Projects/3D-CL-DSS/backend/tests/test_compaction.py):
+- Individual box sliding to rear and side walls without collision or overlap.
+- Strict preservation of LIFO customer sequence in multi-stop LCL shipments.
+- Successful insertion of previously unplaced items into reclaimed contiguous space (`test_rescan_and_insert_recovers_unplaced_item`).
+
+In empirical benchmark runs, compaction yields a modest, consistent improvement in volume utilization (reclaiming 1–3 additional cartons on densely packed shipments) without violating physical stability or customer sequence constraints. It does not alter the theoretical fill-rate ceiling (Section 4.3), but ensures that space fragmented by the constructive heuristic is consolidated and reclaimed before output generation.

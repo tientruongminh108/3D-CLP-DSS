@@ -57,3 +57,6 @@ htmlcov/
 # Test
 .tox/
 .nox/
+
+# guide
+guide.md
