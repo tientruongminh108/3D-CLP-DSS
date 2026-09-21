@@ -183,6 +183,18 @@ def get_pick_list(run_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=e.message)
 
 
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_run(run_id: str, db: Session = Depends(get_db)):
+    """DELETE /runs/{run_id} - deletes a run record. Rejects in-progress runs with 409."""
+    try:
+        service = RunService(db)
+        service.delete(run_id)
+    except DSSException as e:
+        if e.code == "CONFLICT":
+            raise HTTPException(status_code=409, detail=e.message)
+        raise HTTPException(status_code=404, detail=e.message)
+
+
 # ============================================
 # BULK UPLOAD ENDPOINTS
 # ============================================

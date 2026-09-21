@@ -165,6 +165,8 @@ export const runApi = {
     api.post<RunResult>('/runs', run).then((r) => r.data),
   createQuick: (run: RunCreateQuick) =>
     api.post<RunResult>('/runs/quick', run).then((r) => r.data),
+  delete: (runId: string) =>
+    api.delete(`/runs/${runId}`).then((r) => r.data),
 }
 
 export const uploadApi = {

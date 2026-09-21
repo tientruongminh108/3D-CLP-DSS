@@ -572,6 +572,15 @@ class RunService:
             lines.append(f"{idx:<5} {box.box_id:<15} {box.item_id:<15} {box.po_no:<12} {dims:<16} {pos:<18}")
         return "\n".join(lines)
 
+    def delete(self, run_id: str) -> None:
+        db_run = self.db.query(Run).filter(Run.run_id == run_id).first()
+        if not db_run:
+            raise NotFoundError("Run", run_id)
+        if db_run.status == RunStatus.RUNNING.value:
+            raise ConflictError("Cannot delete an in-progress run. Please wait for it to complete.")
+        self.db.delete(db_run)
+        self.db.commit()
+
 
 class PackingListService:
     def __init__(self, db: Session):

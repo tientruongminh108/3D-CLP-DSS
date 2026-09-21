@@ -106,37 +106,41 @@ def run_pipeline(
     placed_bboxes, placed_data, unplaced, current_weight, placed_postures = decode_chromosome(
         best_individual.chromosome, all_units, container_dims, container_spec.max_weight_kg, is_lcl
     )
+
+    if progress_callback:
+        progress_callback("compaction", 0.96, {"message": "Running compaction pass..."})
+
+    from app.solver.compaction import run_compaction_pass
+    placed_bboxes, placed_data, placed_postures, unplaced, current_weight, fitness_res = run_compaction_pass(
+        placed_bboxes=placed_bboxes,
+        placed_data=placed_data,
+        placed_postures=placed_postures,
+        unplaced=unplaced,
+        container_dims=container_dims,
+        max_weight=container_spec.max_weight_kg,
+        is_lcl=is_lcl,
+        current_weight=current_weight,
+    )
+
     best_individual.placed_bboxes = placed_bboxes
     best_individual.placed_data = placed_data
     best_individual.unplaced = unplaced
     best_individual.current_weight = current_weight
     best_individual.placed_postures = placed_postures
+    best_individual.fitness_result = fitness_res
 
-    # Track unplaced units by their object id (since Block is not hashable)
-    unplaced_unit_ids = {id(u) for u, _ in unplaced}
-    
     # Separate placed blocks from placed individual boxes
     placed_blocks = []
     placed_individual_boxes = []
-    for unit in all_units:
-        if id(unit) in unplaced_unit_ids:
-            continue
+    for unit in placed_data:
         if isinstance(unit, Block):
             placed_blocks.append(unit)
         else:
             placed_individual_boxes.append(unit)
 
-    # Unplaced blocks and boxes from decode
-    unplaced_blocks_from_decode = [u for u, _ in unplaced if isinstance(u, Block)]
-    unplaced_boxes_from_decode = [u for u, _ in unplaced if not isinstance(u, Block)]
-
-    # Unplaced blocks and boxes (union of not-placed from all_units and decode result)
-    unplaced_blocks_list = [u for u in all_units if isinstance(u, Block) and u not in placed_blocks]
-    unplaced_individual_boxes = [u for u in all_units if not isinstance(u, Block) and u not in placed_individual_boxes]
-
-    # Use decode result for accuracy (it reflects actual GA evaluation)
-    final_unplaced_blocks = unplaced_blocks_from_decode if unplaced_blocks_from_decode else unplaced_blocks_list
-    final_unplaced_boxes = unplaced_boxes_from_decode if unplaced_boxes_from_decode else unplaced_individual_boxes
+    # Unplaced blocks and boxes from final solution
+    final_unplaced_blocks = [u for u, _ in unplaced if isinstance(u, Block)]
+    final_unplaced_boxes = [u for u, _ in unplaced if not isinstance(u, Block)]
 
     result = build_run_result(
         individual=best_individual,
@@ -162,9 +166,9 @@ def run_pipeline(
         result=result,
         best_individual=best_individual,
         placed_blocks=placed_blocks,
-        unplaced_blocks=unplaced_blocks_list,
+        unplaced_blocks=final_unplaced_blocks,
         all_boxes=boxes,
-        unplaced_boxes=unplaced_boxes_from_decode,
+        unplaced_boxes=final_unplaced_boxes,
         container_spec=container_spec,
         is_lcl=is_lcl,
     )
