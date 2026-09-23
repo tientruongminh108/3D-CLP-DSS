@@ -58,5 +58,8 @@ htmlcov/
 .tox/
 .nox/
 
-# guide
+# Guide
 guide.md
+
+# Data
+data/

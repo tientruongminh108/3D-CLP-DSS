@@ -48,9 +48,11 @@ def test_decode_chromosome_exact_placement(fcl_dataset):
         list(chromosome), all_units, container_dims, max_weight, is_lcl=False
     )
 
-    assert len(placed_bboxes) == 108
-    assert len(placed_data) == 108
-    assert current_weight == pytest.approx(6823.97, abs=0.01)
+    # Note: With multi-pass block consolidation, boxes are consolidated into 35 blocks and 80 leftovers
+    # (115 total units vs ~135 previously). Placed units for seed 1 are 93 (containing 118 boxes).
+    assert len(placed_bboxes) == 93
+    assert len(placed_data) == 93
+    assert current_weight == pytest.approx(6514.36, abs=0.01)
 
     # Verify first 3 boxes match exact coordinates
     assert (placed_bboxes[0].min_x, placed_bboxes[0].min_y, placed_bboxes[0].min_z) == (1101.0, 0, 0)

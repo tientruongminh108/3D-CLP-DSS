@@ -61,6 +61,16 @@ class Block:
             self._cached_max_load_bearing_kg = min(limits) if limits else None
         return self._cached_max_load_bearing_kg
 
+    @property
+    def fill_ratio(self) -> float:
+        """Ratio of actual cargo volume of contents to the bounding box volume."""
+        vol = self.length_cm * self.width_cm * self.height_cm
+        if vol <= 0:
+            return 0.0
+        cargo_vol = sum(c.length_cm * c.width_cm * c.height_cm for c in self.contents)
+        return cargo_vol / vol
+
+
 
 def build_blocks(
     boxes: List[Box],
@@ -173,98 +183,110 @@ def _build_simple_blocks(
 ) -> Tuple[List[Block], List[Box]]:
     blocks = []
     leftover = []
+    remaining = list(boxes)
 
     axis_lengths = [length, width, height]
     axis_inflated = [inflated_l, inflated_w, inflated_h]
-    max_count = len(boxes)
-    best_block = None
-    best_count = 0
-    best_axis = -1
+    block_counter = 0
 
-    for axis in range(3):
-        other_axes = [i for i in range(3) if i != axis]
+    while len(remaining) >= 2:
+        best_count = 0
+        best_axis = -1
 
-        for count in range(2, max_count + 1):
-            dims = [0, 0, 0]
-            dims[axis] = axis_lengths[axis] * count
-            dims[other_axes[0]] = axis_lengths[other_axes[0]]
-            dims[other_axes[1]] = axis_lengths[other_axes[1]]
+        for axis in range(3):
+            other_axes = [i for i in range(3) if i != axis]
 
-            inflated_dims = [0, 0, 0]
-            inflated_dims[axis] = axis_inflated[axis] * count
-            inflated_dims[other_axes[0]] = axis_inflated[other_axes[0]]
-            inflated_dims[other_axes[1]] = axis_inflated[other_axes[1]]
+            for count in range(2, len(remaining) + 1):
+                dims = [0.0, 0.0, 0.0]
+                dims[axis] = axis_lengths[axis] * count
+                dims[other_axes[0]] = axis_lengths[other_axes[0]]
+                dims[other_axes[1]] = axis_lengths[other_axes[1]]
 
-            if not _fits_bounds(
-                dims,
-                inflated_dims,
-                container_length,
-                container_width,
-                container_height,
-                max_frac,
-                axis_lengths,
-                axis_inflated,
-                stacking_axis=axis,
-            ):
-                break
+                inflated_dims = [0.0, 0.0, 0.0]
+                inflated_dims[axis] = axis_inflated[axis] * count
+                inflated_dims[other_axes[0]] = axis_inflated[other_axes[0]]
+                inflated_dims[other_axes[1]] = axis_inflated[other_axes[1]]
 
-            # No fill_ratio check for simple blocks (Step 2) per guide
-            # Fill ratio only applies to Steps 3-4 (combining blocks)
+                if not _fits_bounds(
+                    dims,
+                    inflated_dims,
+                    container_length,
+                    container_width,
+                    container_height,
+                    max_frac,
+                    axis_lengths,
+                    axis_inflated,
+                    stacking_axis=axis,
+                ):
+                    break
 
-            # Set relative positions for contents
-            contents = []
-            for i in range(count):
-                box = boxes[i]
-                rel_pos = [0.0, 0.0, 0.0]
-                rel_pos[axis] = axis_inflated[axis] * i
-                content_box = Box(
-                    box_id=box.box_id,
-                    item_id=box.item_id,
-                    po_no=box.po_no,
-                    customer_code=box.customer_code,
-                    customer_sequence=box.customer_sequence,
-                    length_cm=box.length_cm,
-                    width_cm=box.width_cm,
-                    height_cm=box.height_cm,
-                    weight_kg=box.weight_kg,
-                    this_way_up=box.this_way_up,
-                    stacking_group=box.stacking_group,
-                    max_load_bearing_kg=box.max_load_bearing_kg,
-                    permitted_postures=box.permitted_postures,
-                    inflated_length=box.inflated_length,
-                    inflated_width=box.inflated_width,
-                    inflated_height=box.inflated_height,
-                    rel_x=rel_pos[0],
-                    rel_y=rel_pos[1],
-                    rel_z=rel_pos[2],
-                )
-                contents.append(content_box)
+                if count > best_count:
+                    best_count = count
+                    best_axis = axis
 
-            if count > best_count:
-                best_count = count
-                best_block = Block(
-                    block_id=f"B_{cust_seq}_{length}x{width}x{height}_axis{axis}_{count}",
-                    boxes=boxes[:count],
-                    length_cm=dims[0],
-                    width_cm=dims[1],
-                    height_cm=dims[2],
-                    weight_kg=box_weight * count,
-                    customer_sequence=cust_seq,
-                    inflated_length=inflated_dims[0],
-                    inflated_width=inflated_dims[1],
-                    inflated_height=inflated_dims[2],
-                    contents=contents,
-                )
-                best_axis = axis
+        if best_count < 2:
+            break
 
-    if best_block:
-        blocks.append(best_block)
-        # Add unused boxes to leftover
-        leftover.extend(boxes[best_count:])
-    else:
-        # No block could be created, all boxes go to leftover
-        leftover.extend(boxes)
+        block_counter += 1
+        chosen_boxes = remaining[:best_count]
+        remaining = remaining[best_count:]
 
+        other_axes_for_best = [i for i in range(3) if i != best_axis]
+        dims = [0.0, 0.0, 0.0]
+        dims[best_axis] = axis_lengths[best_axis] * best_count
+        dims[other_axes_for_best[0]] = axis_lengths[other_axes_for_best[0]]
+        dims[other_axes_for_best[1]] = axis_lengths[other_axes_for_best[1]]
+
+        inflated_dims = [0.0, 0.0, 0.0]
+        inflated_dims[best_axis] = axis_inflated[best_axis] * best_count
+        inflated_dims[other_axes_for_best[0]] = axis_inflated[other_axes_for_best[0]]
+        inflated_dims[other_axes_for_best[1]] = axis_inflated[other_axes_for_best[1]]
+
+        # Set relative positions for contents
+        contents = []
+        for i in range(best_count):
+            box = chosen_boxes[i]
+            rel_pos = [0.0, 0.0, 0.0]
+            rel_pos[best_axis] = axis_inflated[best_axis] * i
+            content_box = Box(
+                box_id=box.box_id,
+                item_id=box.item_id,
+                po_no=box.po_no,
+                customer_code=box.customer_code,
+                customer_sequence=box.customer_sequence,
+                length_cm=box.length_cm,
+                width_cm=box.width_cm,
+                height_cm=box.height_cm,
+                weight_kg=box.weight_kg,
+                this_way_up=box.this_way_up,
+                stacking_group=box.stacking_group,
+                max_load_bearing_kg=box.max_load_bearing_kg,
+                permitted_postures=box.permitted_postures,
+                inflated_length=box.inflated_length,
+                inflated_width=box.inflated_width,
+                inflated_height=box.inflated_height,
+                rel_x=rel_pos[0],
+                rel_y=rel_pos[1],
+                rel_z=rel_pos[2],
+            )
+            contents.append(content_box)
+
+        block = Block(
+            block_id=f"B_{cust_seq}_{length}x{width}x{height}_axis{best_axis}_{best_count}_{block_counter}",
+            boxes=chosen_boxes,
+            length_cm=dims[0],
+            width_cm=dims[1],
+            height_cm=dims[2],
+            weight_kg=box_weight * best_count,
+            customer_sequence=cust_seq,
+            inflated_length=inflated_dims[0],
+            inflated_width=inflated_dims[1],
+            inflated_height=inflated_dims[2],
+            contents=contents,
+        )
+        blocks.append(block)
+
+    leftover.extend(remaining)
     return blocks, leftover
 
 
@@ -326,105 +348,126 @@ def _combine_identical_blocks(
             combined.extend(group)
             continue
 
-        length, width, height, cust_seq = key
-        single_vol = length * width * height
-        weight = group[0].weight_kg / (len(group[0].boxes) if group[0].boxes else 1)
-        stacking_group = group[0].boxes[0].stacking_group if group[0].boxes else 1
-        this_way_up = group[0].boxes[0].this_way_up if group[0].boxes else True
-        max_load = group[0].boxes[0].max_load_bearing_kg if group[0].boxes else None
-        permitted = group[0].boxes[0].permitted_postures if group[0].boxes else []
-        inflated_l = group[0].inflated_length / (len(group[0].boxes) if group[0].boxes else 1)
-        inflated_w = group[0].inflated_width / (len(group[0].boxes) if group[0].boxes else 1)
-        inflated_h = group[0].inflated_height / (len(group[0].boxes) if group[0].boxes else 1)
+        cust_seq = key[3]
+        current_blocks = list(group)
+        changed = True
+        pass_num = 0
 
-        best_blocks = []
-        remaining = group[:]
+        while changed:
+            pass_num += 1
+            changed = False
+            next_round = []
+            used = set()
 
-        while len(remaining) >= 2:
-            b1 = remaining.pop(0)
-            b2 = remaining.pop(0)
+            for i in range(len(current_blocks)):
+                if i in used:
+                    continue
+                b1 = current_blocks[i]
+                merged_with_j = False
 
-            for axis in range(3):
-                new_dims = [b1.length_cm, b1.width_cm, b1.height_cm]
-                new_inflated = [b1.inflated_length, b1.inflated_width, b1.inflated_height]
+                for j in range(i + 1, len(current_blocks)):
+                    if j in used:
+                        continue
+                    b2 = current_blocks[j]
 
-                new_dims[axis] += b2.length_cm if axis == 0 else (
-                    b2.width_cm if axis == 1 else b2.height_cm
-                )
-                new_inflated[axis] += b2.inflated_length if axis == 0 else (
-                    b2.inflated_width if axis == 1 else b2.inflated_height
-                )
+                    for axis in range(3):
+                        other_axes = [k for k in range(3) if k != axis]
+                        b1_dims = [b1.length_cm, b1.width_cm, b1.height_cm]
+                        b2_dims = [b2.length_cm, b2.width_cm, b2.height_cm]
 
-                if _fits_bounds(
-                    new_dims,
-                    new_inflated,
-                    container_length,
-                    container_width,
-                    container_height,
-                    max_frac,
-                    [length, width, height],
-                    [inflated_l, inflated_w, inflated_h],
-                    stacking_axis=axis,
-                ):
-                    new_vol = new_dims[0] * new_dims[1] * new_dims[2]
-                    fill_ratio = (len(b1.boxes) + len(b2.boxes)) * single_vol / new_vol
+                        # Only merge if dimensions on the other two axes match
+                        if (abs(b1_dims[other_axes[0]] - b2_dims[other_axes[0]]) > 1e-4 or
+                            abs(b1_dims[other_axes[1]] - b2_dims[other_axes[1]]) > 1e-4):
+                            continue
 
-                    if fill_ratio >= min_fill:
-                        # Offset b2's contents by b1's extent along the merge axis
-                        offset = [0.0, 0.0, 0.0]
-                        offset[axis] = b1.inflated_length if axis == 0 else (
-                            b1.inflated_width if axis == 1 else b1.inflated_height
-                        )
-                        
-                        merged_contents = []
-                        for c in b1.contents:
-                            merged_contents.append(c)
-                        for c in b2.contents:
-                            # Create copy with offset relative position
-                            merged_contents.append(Box(
-                                box_id=c.box_id,
-                                item_id=c.item_id,
-                                po_no=c.po_no,
-                                customer_code=c.customer_code,
-                                customer_sequence=c.customer_sequence,
-                                length_cm=c.length_cm,
-                                width_cm=c.width_cm,
-                                height_cm=c.height_cm,
-                                weight_kg=c.weight_kg,
-                                this_way_up=c.this_way_up,
-                                stacking_group=c.stacking_group,
-                                max_load_bearing_kg=c.max_load_bearing_kg,
-                                permitted_postures=c.permitted_postures,
-                                inflated_length=c.inflated_length,
-                                inflated_width=c.inflated_width,
-                                inflated_height=c.inflated_height,
-                                rel_x=c.rel_x + offset[0],
-                                rel_y=c.rel_y + offset[1],
-                                rel_z=c.rel_z + offset[2],
-                            ))
+                        b1_infl = [b1.inflated_length, b1.inflated_width, b1.inflated_height]
+                        b2_infl = [b2.inflated_length, b2.inflated_width, b2.inflated_height]
 
-                        merged = Block(
-                            block_id=f"B_{cust_seq}_{new_dims[0]}x{new_dims[1]}x{new_dims[2]}_merged",
-                            boxes=b1.boxes + b2.boxes,
-                            length_cm=new_dims[0],
-                            width_cm=new_dims[1],
-                            height_cm=new_dims[2],
-                            weight_kg=b1.weight_kg + b2.weight_kg,
-                            customer_sequence=cust_seq,
-                            inflated_length=new_inflated[0],
-                            inflated_width=new_inflated[1],
-                            inflated_height=new_inflated[2],
-                            contents=merged_contents,
-                        )
-                        best_blocks.append(merged)
+                        new_dims = list(b1_dims)
+                        new_dims[axis] += b2_dims[axis]
+
+                        new_inflated = list(b1_infl)
+                        new_inflated[axis] += b2_infl[axis]
+
+                        native_dims = [max(b1_dims[k], b2_dims[k]) for k in range(3)]
+                        native_inflated = [max(b1_infl[k], b2_infl[k]) for k in range(3)]
+
+                        if _fits_bounds(
+                            new_dims,
+                            new_inflated,
+                            container_length,
+                            container_width,
+                            container_height,
+                            max_frac,
+                            native_dims,
+                            native_inflated,
+                            stacking_axis=axis,
+                        ):
+                            new_vol = new_dims[0] * new_dims[1] * new_dims[2]
+                            actual_cargo_vol = sum(
+                                c.length_cm * c.width_cm * c.height_cm
+                                for c in b1.contents + b2.contents
+                            )
+                            fill_ratio = actual_cargo_vol / new_vol if new_vol > 0 else 0
+
+                            if fill_ratio >= min_fill:
+                                offset = [0.0, 0.0, 0.0]
+                                offset[axis] = b1_infl[axis]
+
+                                merged_contents = list(b1.contents)
+                                for c in b2.contents:
+                                    merged_contents.append(Box(
+                                        box_id=c.box_id,
+                                        item_id=c.item_id,
+                                        po_no=c.po_no,
+                                        customer_code=c.customer_code,
+                                        customer_sequence=c.customer_sequence,
+                                        length_cm=c.length_cm,
+                                        width_cm=c.width_cm,
+                                        height_cm=c.height_cm,
+                                        weight_kg=c.weight_kg,
+                                        this_way_up=c.this_way_up,
+                                        stacking_group=c.stacking_group,
+                                        max_load_bearing_kg=c.max_load_bearing_kg,
+                                        permitted_postures=c.permitted_postures,
+                                        inflated_length=c.inflated_length,
+                                        inflated_width=c.inflated_width,
+                                        inflated_height=c.inflated_height,
+                                        rel_x=c.rel_x + offset[0],
+                                        rel_y=c.rel_y + offset[1],
+                                        rel_z=c.rel_z + offset[2],
+                                    ))
+
+                                merged = Block(
+                                    block_id=f"B_{cust_seq}_{new_dims[0]}x{new_dims[1]}x{new_dims[2]}_merged_p{pass_num}",
+                                    boxes=b1.boxes + b2.boxes,
+                                    length_cm=new_dims[0],
+                                    width_cm=new_dims[1],
+                                    height_cm=new_dims[2],
+                                    weight_kg=b1.weight_kg + b2.weight_kg,
+                                    customer_sequence=cust_seq,
+                                    inflated_length=new_inflated[0],
+                                    inflated_width=new_inflated[1],
+                                    inflated_height=new_inflated[2],
+                                    contents=merged_contents,
+                                )
+                                next_round.append(merged)
+                                used.add(i)
+                                used.add(j)
+                                changed = True
+                                merged_with_j = True
+                                break
+
+                    if merged_with_j:
                         break
-            else:
-                best_blocks.append(b1)
-                remaining.insert(0, b2)
-                break
 
-        best_blocks.extend(remaining)
-        combined.extend(best_blocks)
+                if not merged_with_j:
+                    next_round.append(b1)
+                    used.add(i)
+
+            current_blocks = next_round
+
+        combined.extend(current_blocks)
 
     return combined
 
@@ -467,107 +510,109 @@ def _combine_similar_blocks(
             combined.extend(group)
             continue
 
-        best_blocks = []
-        remaining = group[:]
+        final_group = []
+        remaining = list(group)
 
-        while len(remaining) >= 2:
+        while remaining:
             b1 = remaining.pop(0)
-            b2 = remaining.pop(0)
+            merged = False
 
-            for axis in range(3):
-                other_axes = [k for k in range(3) if k != axis]
-                b1_dims = [b1.length_cm, b1.width_cm, b1.height_cm]
-                b1_infl = [b1.inflated_length, b1.inflated_width, b1.inflated_height]
-                b2_dims = [b2.length_cm, b2.width_cm, b2.height_cm]
-                b2_infl = [b2.inflated_length, b2.inflated_width, b2.inflated_height]
+            for j in range(len(remaining)):
+                b2 = remaining[j]
 
-                new_dims = [0.0, 0.0, 0.0]
-                new_inflated = [0.0, 0.0, 0.0]
-                new_dims[axis] = b1_dims[axis] + b2_dims[axis]
-                new_inflated[axis] = b1_infl[axis] + b2_infl[axis]
-                for o in other_axes:
-                    new_dims[o] = max(b1_dims[o], b2_dims[o])
-                    new_inflated[o] = max(b1_infl[o], b2_infl[o])
+                for axis in range(3):
+                    other_axes = [k for k in range(3) if k != axis]
+                    b1_dims = [b1.length_cm, b1.width_cm, b1.height_cm]
+                    b1_infl = [b1.inflated_length, b1.inflated_width, b1.inflated_height]
+                    b2_dims = [b2.length_cm, b2.width_cm, b2.height_cm]
+                    b2_infl = [b2.inflated_length, b2.inflated_width, b2.inflated_height]
 
-                native_d = [max(b1_dims[k], b2_dims[k]) for k in range(3)]
-                native_i = [max(b1_infl[k], b2_infl[k]) for k in range(3)]
+                    new_dims = [0.0, 0.0, 0.0]
+                    new_inflated = [0.0, 0.0, 0.0]
+                    new_dims[axis] = b1_dims[axis] + b2_dims[axis]
+                    new_inflated[axis] = b1_infl[axis] + b2_infl[axis]
+                    for o in other_axes:
+                        new_dims[o] = max(b1_dims[o], b2_dims[o])
+                        new_inflated[o] = max(b1_infl[o], b2_infl[o])
 
-                if _fits_bounds(
-                    new_dims,
-                    new_inflated,
-                    container_length,
-                    container_width,
-                    container_height,
-                    max_frac,
-                    native_d,
-                    native_i,
-                    stacking_axis=axis,
-                ):
-                    total_boxes = len(b1.contents) + len(b2.contents)
-                    avg_vol = (
-                        sum(
+                    native_d = [max(b1_dims[k], b2_dims[k]) for k in range(3)]
+                    native_i = [max(b1_infl[k], b2_infl[k]) for k in range(3)]
+
+                    if _fits_bounds(
+                        new_dims,
+                        new_inflated,
+                        container_length,
+                        container_width,
+                        container_height,
+                        max_frac,
+                        native_d,
+                        native_i,
+                        stacking_axis=axis,
+                    ):
+                        actual_vol = sum(
                             c.length_cm * c.width_cm * c.height_cm
                             for c in b1.contents + b2.contents
                         )
-                        / total_boxes
-                    )
-                    new_vol = new_dims[0] * new_dims[1] * new_dims[2]
-                    fill_ratio = (total_boxes * avg_vol) / new_vol
+                        new_vol = new_dims[0] * new_dims[1] * new_dims[2]
+                        fill_ratio = actual_vol / new_vol if new_vol > 0 else 0
 
-                    if fill_ratio >= min_fill:
-                        # Offset b2's contents by b1's extent along the merge axis
-                        offset = [0.0, 0.0, 0.0]
-                        offset[axis] = b1.inflated_length if axis == 0 else (
-                            b1.inflated_width if axis == 1 else b1.inflated_height
-                        )
-                        
-                        merged_contents = []
-                        for c in b1.contents:
-                            merged_contents.append(c)
-                        for c in b2.contents:
-                            merged_contents.append(Box(
-                                box_id=c.box_id,
-                                item_id=c.item_id,
-                                po_no=c.po_no,
-                                customer_code=c.customer_code,
-                                customer_sequence=c.customer_sequence,
-                                length_cm=c.length_cm,
-                                width_cm=c.width_cm,
-                                height_cm=c.height_cm,
-                                weight_kg=c.weight_kg,
-                                this_way_up=c.this_way_up,
-                                stacking_group=c.stacking_group,
-                                max_load_bearing_kg=c.max_load_bearing_kg,
-                                permitted_postures=c.permitted_postures,
-                                inflated_length=c.inflated_length,
-                                inflated_width=c.inflated_width,
-                                inflated_height=c.inflated_height,
-                                rel_x=c.rel_x + offset[0],
-                                rel_y=c.rel_y + offset[1],
-                                rel_z=c.rel_z + offset[2],
-                            ))
+                        if fill_ratio >= min_fill:
+                            # Offset b2's contents by b1's extent along the merge axis
+                            offset = [0.0, 0.0, 0.0]
+                            offset[axis] = (
+                                b1.inflated_length if axis == 0 else (
+                                    b1.inflated_width if axis == 1 else b1.inflated_height
+                                )
+                            )
 
-                        merged = Block(
-                            block_id=f"B_{b1.customer_sequence}_{new_dims[0]}x{new_dims[1]}x{new_dims[2]}_similar",
-                            boxes=b1.boxes + b2.boxes,
-                            length_cm=new_dims[0],
-                            width_cm=new_dims[1],
-                            height_cm=new_dims[2],
-                            weight_kg=b1.weight_kg + b2.weight_kg,
-                            customer_sequence=b1.customer_sequence,
-                            inflated_length=new_inflated[0],
-                            inflated_width=new_inflated[1],
-                            inflated_height=new_inflated[2],
-                            contents=merged_contents,
-                        )
-                        best_blocks.append(merged)
-                        break
-            else:
-                best_blocks.append(b1)
-                remaining.insert(0, b2)
-                break
+                            merged_contents = list(b1.contents)
+                            for c in b2.contents:
+                                merged_contents.append(Box(
+                                    box_id=c.box_id,
+                                    item_id=c.item_id,
+                                    po_no=c.po_no,
+                                    customer_code=c.customer_code,
+                                    customer_sequence=c.customer_sequence,
+                                    length_cm=c.length_cm,
+                                    width_cm=c.width_cm,
+                                    height_cm=c.height_cm,
+                                    weight_kg=c.weight_kg,
+                                    this_way_up=c.this_way_up,
+                                    stacking_group=c.stacking_group,
+                                    max_load_bearing_kg=c.max_load_bearing_kg,
+                                    permitted_postures=c.permitted_postures,
+                                    inflated_length=c.inflated_length,
+                                    inflated_width=c.inflated_width,
+                                    inflated_height=c.inflated_height,
+                                    rel_x=c.rel_x + offset[0],
+                                    rel_y=c.rel_y + offset[1],
+                                    rel_z=c.rel_z + offset[2],
+                                ))
 
-        best_blocks.extend(remaining)
-        combined.extend(best_blocks)
+                            merged = Block(
+                                block_id=f"B_{b1.customer_sequence}_{new_dims[0]}x{new_dims[1]}x{new_dims[2]}_similar",
+                                boxes=b1.boxes + b2.boxes,
+                                length_cm=new_dims[0],
+                                width_cm=new_dims[1],
+                                height_cm=new_dims[2],
+                                weight_kg=b1.weight_kg + b2.weight_kg,
+                                customer_sequence=b1.customer_sequence,
+                                inflated_length=new_inflated[0],
+                                inflated_width=new_inflated[1],
+                                inflated_height=new_inflated[2],
+                                contents=merged_contents,
+                            )
+                            remaining.pop(j)
+                            remaining.append(merged)
+                            merged = True
+                            break
+
+                if merged:
+                    break
+
+            if not merged:
+                final_group.append(b1)
+
+        combined.extend(final_group)
 
     return combined
