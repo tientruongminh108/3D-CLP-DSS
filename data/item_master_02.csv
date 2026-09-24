@@ -1,0 +1,8 @@
+Item_ID,Description,Length_cm,Width_cm,Height_cm,Weight_kg,This_Way_Up,Stacking_Group,Max_Load_Bearing_kg
+IMHF4078,Hartford Bookcase,114.6,39.0,212.1,60.0,True,1,
+IMHF450,Hartford Lateral File,108.6,59.7,80.4,63.0,True,1,200.0
+IMHF450W,Hartford Lateral File (Wide),108.6,59.7,80.4,63.0,True,1,200.0
+IMHF684RW-R,RHF Return for Pedestal Desk,127.9,81.9,71.6,67.0,True,1,150.0
+IMHF689,Hartford Credenza,154.3,71.0,86.4,96.0,True,1,200.0
+IMAL402,Albany Ladder,64.9,12.3,165.5,10.0,True,2,
+IMAY689,Abby Credenza,155.2,71.4,86.9,106.0,True,1,200.0
