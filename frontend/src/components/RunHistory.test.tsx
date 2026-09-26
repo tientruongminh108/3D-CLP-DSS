@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { RunHistory } from './RunHistory'
 import { useToastStore } from './Toast'
 import { runApi } from '../services/api'
-import type { RunSummary } from '../types/api'
+import { RunStatus, ShipmentType, type RunSummary } from '../types/api'
 
 const renderWithRouter = (ui: React.ReactElement) => {
   return render(
@@ -18,31 +18,37 @@ const mockRuns: RunSummary[] = [
   {
     run_id: 'run-completed-12345678',
     container_type: '40HC',
-    shipment_type: 'FCL',
+    shipment_type: ShipmentType.FCL,
     total_cartons: 100,
     placed_count: 95,
+    unplaced_count: 5,
+    customer_count: 1,
     fill_rate: 0.82,
-    status: 'completed',
+    status: RunStatus.COMPLETED,
     created_at: '2026-09-20T10:00:00Z',
   },
   {
     run_id: 'run-running-abcdefgh',
     container_type: '20GP',
-    shipment_type: 'LCL',
+    shipment_type: ShipmentType.LCL,
     total_cartons: 50,
     placed_count: 0,
+    unplaced_count: 50,
+    customer_count: 2,
     fill_rate: 0.0,
-    status: 'running',
+    status: RunStatus.RUNNING,
     created_at: '2026-09-20T11:00:00Z',
   },
   {
     run_id: 'run-failed-98765432',
     container_type: '40HC',
-    shipment_type: 'FCL',
+    shipment_type: ShipmentType.FCL,
     total_cartons: 80,
     placed_count: 0,
+    unplaced_count: 80,
+    customer_count: 1,
     fill_rate: 0.0,
-    status: 'failed',
+    status: RunStatus.FAILED,
     created_at: '2026-09-20T09:00:00Z',
   },
 ]

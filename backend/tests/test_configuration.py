@@ -61,5 +61,5 @@ class TestConfigurationDefaults:
         """CFG-06: Per-axis MAX_BLOCK_FRACTION settings"""
         settings = get_settings()
         assert settings.MAX_BLOCK_FRACTION_X == 0.20
-        assert settings.MAX_BLOCK_FRACTION_Y == 0.50
-        assert settings.MAX_BLOCK_FRACTION_Z == 0.50
+        assert settings.MAX_BLOCK_FRACTION_Y == 0.70
+        assert settings.MAX_BLOCK_FRACTION_Z == 0.70

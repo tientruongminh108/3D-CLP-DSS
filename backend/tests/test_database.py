@@ -35,22 +35,6 @@ class TestDatabaseConstraints:
                 db.commit()
             db.rollback()
 
-    def test_DB_02_item_stacking_group_check(self):
-        """DB-02: Item with stacking_group=5 rejected by CHECK constraint"""
-        with SessionLocal() as db:
-            item = DBItem(
-                item_id="DB-TEST-STACK-5",
-                description="Test",
-                length_cm=100,
-                width_cm=50,
-                height_cm=40,
-                weight_kg=20,
-                stacking_group=5,
-            )
-            db.add(item)
-            with pytest.raises(IntegrityError):
-                db.commit()
-            db.rollback()
 
     def test_DB_03_run_unplaced_reason_check(self):
         """DB-03: run_unplaced with invalid reason rejected by CHECK constraint"""

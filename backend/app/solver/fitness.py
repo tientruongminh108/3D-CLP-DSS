@@ -15,7 +15,7 @@ class FitnessResult:
     unplaced_count: int
     cog_deviation_xy: float
     cog_deviation_z: float
-    load_bearing_violations: int
+    stacking_violations: int
     stability_violations: int
 
 
@@ -56,27 +56,27 @@ def calculate_fitness(
     )
 
     # Check constraints for penalty terms (B4, B5)
-    load_bearing_violations = 0
+    stacking_violations = 0
     stability_violations = 0
 
-    # BUG-15 fix: build a z-level index so supporters are looked up in O(1)
-    # instead of scanning all N boxes for each of N candidates — cuts the
-    # per-evaluation cost from O(N²) to O(N) in the common case.
+    # Build a z-level index so supporters are looked up in O(1)
+    # instead of scanning all N boxes for each of N candidates.
     z_to_supporters = defaultdict(list)
     for j, other in enumerate(placed_bboxes):
         # Key on rounded max_z to handle floating-point near-equality
         z_to_supporters[round(other.max_z, 6)].append((j, other))
 
     for i, bbox in enumerate(placed_bboxes):
-        # BUG-03 consistency: use FLOOR_EPSILON so compaction-shifted boxes
-        # at z ≈ 0 are still treated as floor items and skipped.
         if bbox.min_z > FLOOR_EPSILON:
-            # Stability check using the z-level index
             support_area = 0.0
             footprint = (bbox.max_x - bbox.min_x) * (bbox.max_y - bbox.min_y)
+            box_unit_wt = getattr(placed_data[i], 'boxes', [placed_data[i]])[0].weight_kg
             for j, other in z_to_supporters.get(round(bbox.min_z, 6), []):
                 if other.supports(bbox):
                     support_area += other.contact_area(bbox)
+                    sup_unit_wt = getattr(placed_data[j], 'boxes', [placed_data[j]])[0].weight_kg
+                    if box_unit_wt > sup_unit_wt + 1e-3:
+                        stacking_violations += 1
             if footprint > 0 and (support_area / footprint) < settings.SUPPORT_RATIO:
                 stability_violations += 1
 
@@ -86,12 +86,6 @@ def calculate_fitness(
     #           - cog_weight * (B1_norm + B2_norm + B3_norm)
     #           - INFEASIBLE_PENALTY if B4==0 or B5==0
     
-    # -----------------------------------------------------------------------
-    # Unplaced penalty: weight-proportional so the GA is penalized more for
-    # leaving heavy boxes unplaced than for leaving flat/light ones behind.
-    # Normalise by the maximum per-box weight so the penalty stays on a stable
-    # scale regardless of shipment profile.
-    # -----------------------------------------------------------------------
     max_box_weight = max(
         (getattr(b, 'weight_kg', 0.0)
          for b in chain(placed_data, (u for u, _ in unplaced))),
@@ -105,13 +99,10 @@ def calculate_fitness(
 
     fill_term = fill_rate - settings.FITNESS_COG_PENALTY_WEIGHT * (B1_norm + B2_norm + B3_norm)
 
-    # INFEASIBLE_PENALTY = -(total_box_count * UNPLACED_RANK_WEIGHT) - 1000
     total_box_count = len(placed_data) + unplaced_count
     INFEASIBLE_PENALTY = -(total_box_count * settings.UNPLACED_RANK_WEIGHT) - 1000
 
-    # B4 = 1 if all load-bearing checks pass, else 0
-    # B5 = 1 if all support/stability checks pass, else 0
-    feasible = (load_bearing_violations == 0 and stability_violations == 0)
+    feasible = (stacking_violations == 0 and stability_violations == 0)
 
     fitness = (
         -unplaced_weight_penalty
@@ -125,6 +116,6 @@ def calculate_fitness(
         unplaced_count=unplaced_count,
         cog_deviation_xy=cog_dev_xy,
         cog_deviation_z=cog_dev_z,
-        load_bearing_violations=load_bearing_violations,
+        stacking_violations=stacking_violations,
         stability_violations=stability_violations,
     )

@@ -48,17 +48,57 @@ def test_decode_chromosome_exact_placement(fcl_dataset):
         list(chromosome), all_units, container_dims, max_weight, is_lcl=False
     )
 
-    # At least 27 units must be placed (top_fill_bonus may increase this)
+    # At least 27 units must be placed (without stacking group restrictions, 29 units are placed)
     assert len(placed_bboxes) >= 27
     assert len(placed_data) == len(placed_bboxes)
-    # Total weight must match expected cargo (±5 kg tolerance for rounding)
-    assert current_weight == pytest.approx(4809.8, abs=5.0)
+    # Total weight of placed cargo (with weight-based stacking and no stacking groups: 5319.8 kg)
+    independent_weight = sum(u.weight_kg for u in placed_data)
+    assert independent_weight == pytest.approx(5319.8, abs=0.1)
+    assert current_weight == pytest.approx(5319.8, abs=0.1)
 
     # All placed boxes must be within container bounds
     last_box = placed_bboxes[-1]
     assert last_box.max_x <= container_dims.length + 1e-6
     assert last_box.max_y <= container_dims.width + 1e-6
     assert last_box.max_z <= container_dims.height + 1e-6
+
+
+def test_regression_placement_floors(fcl_dataset):
+    """Regression test asserting BOTH a minimum carton count floor AND fill rate floor.
+
+    Calibrated on the FCL fixture dataset (152 cartons) for seed 1.
+    Protects against changes that inflate one metric (e.g. carton count via weight-sort)
+    while quietly degrading the other (fill rate / volume utilization).
+    """
+    all_units, container_dims, max_weight = fcl_dataset
+    random.seed(1)
+    chromosome = [
+        random.randrange(len(u.permitted_postures)) if u.permitted_postures else 0
+        for u in all_units
+    ]
+
+    placed_bboxes, placed_data, unplaced, current_weight, placed_postures = decode_chromosome(
+        list(chromosome), all_units, container_dims, max_weight, is_lcl=False
+    )
+
+    placed_carton_count = sum(len(getattr(u, 'boxes', [u])) for u in placed_data)
+    c_vol = container_dims.length * container_dims.width * container_dims.height
+    placed_carton_volume = sum(
+        c.length_cm * c.width_cm * c.height_cm
+        for u in placed_data
+        for c in getattr(u, 'boxes', [u])
+    )
+    fill_rate = placed_carton_volume / c_vol
+
+    # Floor for cartons placed: achieved is 98/152
+    assert placed_carton_count >= 95, (
+        f"Placed carton count ({placed_carton_count}) fell below the floor of 95"
+    )
+
+    # Floor for fill rate: achieved is 50.4%
+    assert fill_rate >= 0.48, (
+        f"Fill rate ({fill_rate:.1%}) fell below the floor of 48.0%"
+    )
 
 
 def test_decode_chromosome_execution_time(fcl_dataset):

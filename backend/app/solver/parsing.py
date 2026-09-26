@@ -28,8 +28,6 @@ class Box:
     height_cm: float
     weight_kg: float
     this_way_up: bool
-    stacking_group: int
-    max_load_bearing_kg: Optional[float]
     permitted_postures: List[Posture]
     inflated_length: float
     inflated_width: float
@@ -102,7 +100,6 @@ def parse_item_master(df: pd.DataFrame) -> Dict[str, ItemBase]:
         "Height_cm",
         "Weight_kg",
         "This_Way_Up",
-        "Stacking_Group",
     ]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -118,19 +115,9 @@ def parse_item_master(df: pd.DataFrame) -> Dict[str, ItemBase]:
             if pd.isna(row[dim]) or row[dim] <= 0:
                 raise ValidationError(f"Row {idx + 1}: {dim} must be > 0")
 
-        stacking_group = int(row["Stacking_Group"])
-        if stacking_group not in [1, 2]:
-            raise ValidationError(f"Row {idx + 1}: Stacking_Group must be 1 or 2")
-
         this_way_up = bool(row["This_Way_Up"])
         if pd.isna(row["This_Way_Up"]):
             raise ValidationError(f"Row {idx + 1}: This_Way_Up must be boolean")
-
-        max_load = None
-        if "Max_Load_Bearing_kg" in df.columns and not pd.isna(row["Max_Load_Bearing_kg"]):
-            max_load = float(row["Max_Load_Bearing_kg"])
-            if max_load <= 0:
-                raise ValidationError(f"Row {idx + 1}: Max_Load_Bearing_kg must be > 0")
 
         items[item_id] = ItemBase(
             item_id=item_id,
@@ -140,8 +127,6 @@ def parse_item_master(df: pd.DataFrame) -> Dict[str, ItemBase]:
             height_cm=float(row["Height_cm"]),
             weight_kg=float(row["Weight_kg"]),
             this_way_up=this_way_up,
-            stacking_group=stacking_group,
-            max_load_bearing_kg=max_load,
         )
 
     return items
@@ -204,7 +189,7 @@ def expand_packing_list(
             )
         if row.item_id not in seen_item_ids:
             seen_item_ids.add(row.item_id)
-            permitted = get_permitted_postures(item.this_way_up, item.max_load_bearing_kg, item.weight_kg)
+            permitted = get_permitted_postures(item.this_way_up)
             permitted_cache[row.item_id] = permitted
             if not _check_item_fits_container(item, container, permitted):
                 raise ValidationError(
@@ -245,8 +230,6 @@ def expand_packing_list(
                     height_cm=item.height_cm,
                     weight_kg=item.weight_kg,
                     this_way_up=item.this_way_up,
-                    stacking_group=item.stacking_group,
-                    max_load_bearing_kg=item.max_load_bearing_kg,
                     permitted_postures=permitted,
                     inflated_length=inflated_length,
                     inflated_width=inflated_width,
@@ -266,8 +249,6 @@ def expand_packing_list(
                     height_cm=item.height_cm,
                     weight_kg=item.weight_kg,
                     this_way_up=item.this_way_up,
-                    stacking_group=item.stacking_group,
-                    max_load_bearing_kg=item.max_load_bearing_kg,
                 )
             )
 

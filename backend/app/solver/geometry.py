@@ -273,23 +273,13 @@ def calculate_cog(placed_boxes: List[BoundingBox], weights: List[float]) -> Posi
     return Position(cx / total_weight, cy / total_weight, cz / total_weight)
 
 
-def get_permitted_postures(this_way_up: bool, max_load_bearing_kg: float = None, weight_kg: float = None) -> List[Posture]:
-    """
-    Get permitted postures for an item.
-    
-    - this_way_up=True: only LWH, WLH (default for fragile/upright items)
-    - this_way_up=False: all 6 postures
-    - Override: if max_load_bearing_kg >= weight_kg * 3, allow vertical postures even if this_way_up=True
-      (item is sturdy enough to stand on its side/end)
+def get_permitted_postures(this_way_up: bool) -> List[Posture]:
+    """Get permitted postures for an item:
+    - this_way_up=True: only LWH, WLH (height axis must remain vertical)
+    - this_way_up=False: all 6 postures allowed
     """
     if not this_way_up:
         return list(Posture)
-    
-    # Allow vertical postures for sturdy items (load bearing >= 3x weight)
-    if max_load_bearing_kg is not None and weight_kg is not None:
-        if max_load_bearing_kg >= weight_kg * 3:
-            return [Posture.LWH, Posture.WLH, Posture.HLW, Posture.HWL]
-    
     return [Posture.LWH, Posture.WLH]
 
 
@@ -319,50 +309,7 @@ def check_support_ratio(
     return (contact_area / footprint_area) >= min_support_ratio
 
 
-def check_load_bearing(
-    candidate_box: BoundingBox,
-    placed_boxes: List[BoundingBox],
-    candidate_weight: float,
-    placed_weights: List[float],
-    placed_load_limits: List[Optional[float]],
-    all_placed_boxes: Optional[List[BoundingBox]] = None,
-    all_placed_weights: Optional[List[float]] = None,
-) -> bool:
-    """BUG-02 fix: check cumulative load already resting on each support box,
-    not just the support box's own self-weight.  The old code computed
-    `placed_weights[i] + candidate_weight` where placed_weights[i] was the
-    support box's own mass — completely ignoring boxes already stacked on it.
 
-    We pre-build a load_on[j] table (weight already above box j) using the
-    full placed list, then add the candidate weight before comparing to limit.
-    This correctly catches violations in multi-level stacks.
-    """
-    ref_boxes = all_placed_boxes if all_placed_boxes is not None else placed_boxes
-    ref_weights = all_placed_weights if all_placed_weights is not None else placed_weights
-
-    n_ref = len(ref_boxes)
-    # One-pass: accumulate the weight of every box that directly rests on each
-    # reference box.  O(N²) but N is bounded per placement and called once.
-    load_on = [0.0] * n_ref
-    for i in range(n_ref):
-        for j in range(n_ref):
-            if i != j and ref_boxes[j].supports(ref_boxes[i]):
-                load_on[j] += ref_weights[i]
-
-    # Build an id→index map so the inner loop is O(1) instead of O(N).
-    # list.index() scans the entire list on every call; with large placements
-    # that makes the overall function O(N²) per stackability check.
-    ref_id_map = {id(b): idx for idx, b in enumerate(ref_boxes)}
-
-    for i, box in enumerate(placed_boxes):
-        if box.supports(candidate_box):
-            limit = placed_load_limits[i]
-            if limit is not None:
-                ref_idx = ref_id_map.get(id(box), -1)
-                already_loaded = load_on[ref_idx] if ref_idx >= 0 else 0.0
-                if already_loaded + candidate_weight > limit:
-                    return False
-    return True
 
 
 def check_cog_balance(

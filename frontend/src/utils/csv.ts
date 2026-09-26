@@ -72,11 +72,11 @@ export function generateCSVTemplate(): string {
  * Generate CSV template for items
  */
 export function generateItemsCSVTemplate(): string {
-  const headers = ['item_id', 'description', 'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'this_way_up', 'stacking_group', 'max_load_bearing_kg']
+  const headers = ['item_id', 'description', 'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'this_way_up']
   const sampleRows = [
-    ['SKU-001', 'Standard Box', '30', '20', '15', '2.5', 'true', '1', '100'],
-    ['SKU-002', 'Large Carton', '40', '30', '25', '5.0', 'false', '1', '200'],
-    ['SKU-003', 'Fragile Item', '25', '25', '20', '1.8', 'true', '2', '50'],
+    ['SKU-001', 'Standard Box', '30', '20', '15', '2.5', 'true'],
+    ['SKU-002', 'Large Carton', '40', '30', '25', '5.0', 'false'],
+    ['SKU-003', 'Light Item', '25', '25', '20', '1.8', 'true'],
   ]
   return [headers.join(','), ...sampleRows.map((r) => r.join(','))].join('\n')
 }

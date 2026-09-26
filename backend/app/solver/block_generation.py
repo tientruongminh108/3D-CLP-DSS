@@ -37,21 +37,10 @@ class Block:
 
     @cached_property
     def permitted_postures(self) -> List[Posture]:
-        """Permitted postures per Section 4.2/5.1: 2 if This_Way_Up, 6 otherwise."""
+        """Permitted postures: 2 if This_Way_Up, 6 otherwise."""
         if self.this_way_up:
             return [Posture.LWH, Posture.WLH]
         return list(Posture)
-
-    @cached_property
-    def stacking_group(self) -> int:
-        """Most restrictive (smallest) stacking group among contents."""
-        return min(c.stacking_group for c in self.contents) if self.contents else 1
-
-    @cached_property
-    def max_load_bearing_kg(self) -> Optional[float]:
-        """Minimum load bearing capacity among contents."""
-        limits = [c.max_load_bearing_kg for c in self.contents if c.max_load_bearing_kg is not None]
-        return min(limits) if limits else None
 
     @property
     def fill_ratio(self) -> float:
@@ -94,9 +83,7 @@ def build_blocks(
         item_id, length, width, height, cust_seq = key
         single_vol = length * width * height
         box_weight = group[0].weight_kg
-        stacking_group = group[0].stacking_group
         this_way_up = group[0].this_way_up
-        max_load = group[0].max_load_bearing_kg
         permitted = group[0].permitted_postures
         inflated_l = group[0].inflated_length
         inflated_w = group[0].inflated_width
@@ -109,9 +96,7 @@ def build_blocks(
             height,
             single_vol,
             box_weight,
-            stacking_group,
             this_way_up,
-            max_load,
             permitted,
             inflated_l,
             inflated_w,
@@ -156,9 +141,7 @@ def _build_simple_blocks(
     height: float,
     single_vol: float,
     box_weight: float,
-    stacking_group: int,
     this_way_up: bool,
-    max_load: float,
     permitted: List[Posture],
     inflated_l: float,
     inflated_w: float,
@@ -252,8 +235,6 @@ def _build_simple_blocks(
                             height_cm=b.height_cm,
                             weight_kg=b.weight_kg,
                             this_way_up=b.this_way_up,
-                            stacking_group=b.stacking_group,
-                            max_load_bearing_kg=b.max_load_bearing_kg,
                             permitted_postures=b.permitted_postures,
                             inflated_length=b.inflated_length,
                             inflated_width=b.inflated_width,

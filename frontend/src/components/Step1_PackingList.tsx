@@ -104,7 +104,6 @@ export function Step1_PackingList({
                     <th>Qty</th>
                     <th>Dims (L×W×H) cm</th>
                     <th>Weight (kg)</th>
-                    <th>Stack</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -125,7 +124,6 @@ export function Step1_PackingList({
                         <td>{row.qty_cartons}</td>
                         <td>{row.length_cm}&times;{row.width_cm}&times;{row.height_cm}</td>
                         <td>{row.weight_kg}</td>
-                        <td>Group {row.stacking_group}</td>
                       </tr>
                     )
                   })}

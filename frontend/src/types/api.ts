@@ -1,8 +1,3 @@
-export enum StackingGroup {
-  STURDY = 1,
-  FRAGILE = 2,
-}
-
 export enum Posture {
   LWH = 1,
   WLH = 2,
@@ -38,8 +33,6 @@ export interface Item {
   height_cm: number
   weight_kg: number
   this_way_up: boolean
-  stacking_group: StackingGroup
-  max_load_bearing_kg: number | null
   created_at: string
   updated_at: string
 }
@@ -52,8 +45,6 @@ export interface ItemCreate {
   height_cm: number
   weight_kg: number
   this_way_up: boolean
-  stacking_group: StackingGroup
-  max_load_bearing_kg?: number
 }
 
 export interface ItemUpdate {
@@ -63,8 +54,6 @@ export interface ItemUpdate {
   height_cm?: number
   weight_kg?: number
   this_way_up?: boolean
-  stacking_group?: StackingGroup
-  max_load_bearing_kg?: number
 }
 
 export interface ContainerUpdate {
@@ -119,8 +108,6 @@ export interface PackingListPreviewRow {
   height_cm: number
   weight_kg: number
   this_way_up: boolean
-  stacking_group: number
-  max_load_bearing_kg?: number
 }
 
 export interface PackingListPreview {
@@ -161,8 +148,6 @@ export interface Box {
   height_cm: number
   weight_kg: number
   this_way_up: boolean
-  stacking_group: number
-  max_load_bearing_kg?: number
   permitted_postures: Posture[]
   inflated_length: number
   inflated_width: number

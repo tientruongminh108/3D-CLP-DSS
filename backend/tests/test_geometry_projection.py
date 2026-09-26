@@ -42,8 +42,6 @@ def make_placed_box(
         height_cm=height,
         weight_kg=10.0,
         this_way_up=True,
-        stacking_group=1,
-        max_load_bearing_kg=500.0,
         permitted_postures=[Posture.LWH],
         inflated_length=length,
         inflated_width=width,

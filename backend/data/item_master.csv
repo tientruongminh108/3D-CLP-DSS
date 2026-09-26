@@ -1,17 +1,17 @@
-Item_ID,Description,Length_cm,Width_cm,Height_cm,Weight_kg,This_Way_Up,Stacking_Group,Max_Load_Bearing_kg
-DT-8411,Dining Table,110,70,15,45.5,True,1,200
-DT-8412,Dining Table Large,120,80,15,55.0,True,1,200
-CH-2205,Chair,55,50,90,12.0,True,2,50
-CH-2206,Armchair,65,60,95,18.0,True,2,50
-BD-3301,Bed Frame,200,150,30,80.0,False,1,300
-BD-3302,Bed Frame King,210,180,30,95.0,False,1,300
-WF-4401,Wardrobe Frame,100,50,200,60.0,True,1,150
-WF-4402,Wardrobe Door,100,5,190,25.0,True,2,30
-SF-5501,Sofa Frame,180,80,70,70.0,False,1,200
-SF-5502,Sofa Cushion,80,50,20,10.0,False,2,20
-TB-6601,Coffee Table,100,60,45,30.0,True,1,100
-TB-6602,Side Table,50,40,50,15.0,True,1,50
-BK-7701,Bookcase,80,30,180,40.0,True,1,100
-DS-8801,Desk,120,60,75,35.0,True,1,100
-DR-9901,Dresser,100,45,80,50.0,True,1,150
-NV-1101,Nightstand,45,35,60,12.0,True,1,50
+Item_ID,Description,Length_cm,Width_cm,Height_cm,Weight_kg,This_Way_Up
+DT-8411,Dining Table,110,70,15,45.5,True
+DT-8412,Dining Table Large,120,80,15,55.0,True
+CH-2205,Chair,55,50,90,12.0,True
+CH-2206,Armchair,65,60,95,18.0,True
+BD-3301,Bed Frame,200,150,30,80.0,False
+BD-3302,Bed Frame King,210,180,30,95.0,False
+WF-4401,Wardrobe Frame,100,50,200,60.0,True
+WF-4402,Wardrobe Door,100,5,190,25.0,True
+SF-5501,Sofa Frame,180,80,70,70.0,False
+SF-5502,Sofa Cushion,80,50,20,10.0,False
+TB-6601,Coffee Table,100,60,45,30.0,True
+TB-6602,Side Table,50,40,50,15.0,True
+BK-7701,Bookcase,80,30,180,40.0,True
+DS-8801,Desk,120,60,75,35.0,True
+DR-9901,Dresser,100,45,80,50.0,True
+NV-1101,Nightstand,45,35,60,12.0,True

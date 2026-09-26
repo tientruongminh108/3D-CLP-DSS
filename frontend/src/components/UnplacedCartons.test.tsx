@@ -40,7 +40,7 @@ describe('Unplaced Cartons Result State (Section 6.3 - FE-13 to FE-16)', () => {
       status: 'completed',
       container: { id: 1, container_type: '40HC', internal_length_cm: 1203.2, internal_width_cm: 235.2, internal_height_cm: 270.0, max_weight_kg: 28000, created_at: '', updated_at: '' },
       metrics: { placed_count: 10, unplaced_count: 0, total_cartons: 10, fill_rate: 0.85, used_weight_kg: 10000, max_weight_kg: 28000, weight_utilization: 35.7, cog_x: 601.6, cog_y: 117.6, cog_z: 135.0, cog_deviation_xy: 0, cog_deviation_z: 0 },
-      placed_boxes: [{ box_id: 'BOX-1', item_id: 'ITEM-1', po_no: 'PO-1', customer_code: null, customer_sequence: 1, x: 0, y: 0, z: 0, length_cm: 100, width_cm: 50, height_cm: 40, weight_kg: 1000, this_way_up: true, stacking_group: 1, max_load_bearing_kg: 1000, permitted_postures: [1], inflated_length: 102, inflated_width: 52, inflated_height: 40, posture: 1, actual_length: 100, actual_width: 50, actual_height: 40 }],
+      placed_boxes: [{ box_id: 'BOX-1', item_id: 'ITEM-1', po_no: 'PO-1', customer_code: null, customer_sequence: 1, x: 0, y: 0, z: 0, length_cm: 100, width_cm: 50, height_cm: 40, weight_kg: 1000, this_way_up: true, permitted_postures: [1], inflated_length: 102, inflated_width: 52, inflated_height: 40, posture: 1, actual_length: 100, actual_width: 50, actual_height: 40 }],
       unplaced_cartons: [],
       layers: [],
       created_at: new Date().toISOString(),

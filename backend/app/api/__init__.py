@@ -223,8 +223,6 @@ async def upload_items_csv(file: UploadFile = File(...), db: Session = Depends(g
         'height_cm': ['height_cm', 'height', 'h', 'hei', 'height(cm)', 'height_(cm)'],
         'weight_kg': ['weight_kg', 'weight', 'kg', 'wt', 'weight(kg)', 'weight_(kg)'],
         'this_way_up': ['this_way_up', 'thiswayup', 'orientation', 'upright'],
-        'stacking_group': ['stacking_group', 'stack_group', 'stackgroup', 'group', 'stack'],
-        'max_load_bearing_kg': ['max_load_bearing_kg', 'max_load', 'maxload', 'load_bearing', 'loadbearing', 'max_load_bearing'],
     }
     
     def get_col(df_cols, possible_names):
@@ -275,40 +273,6 @@ async def upload_items_csv(file: UploadFile = File(...), db: Session = Depends(g
                 val = row[mapped_cols['this_way_up']]
                 if pd.notna(val) and str(val).strip():
                     item_data['this_way_up'] = str(val).strip().lower() in ['true', 'yes', '1', 'y', 't']
-            
-            if 'stacking_group' in mapped_cols:
-                val = row[mapped_cols['stacking_group']]
-                if pd.notna(val) and str(val).strip():
-                    grp_str = str(val).strip().upper()
-                    if grp_str in ('1', 'STURDY'):
-                        item_data['stacking_group'] = 1
-                    elif grp_str in ('2', 'FRAGILE'):
-                        item_data['stacking_group'] = 2
-                    else:
-                        try:
-                            grp_val = int(float(grp_str))
-                            if grp_val in (1, 2):
-                                item_data['stacking_group'] = grp_val
-                            else:
-                                errors.append(f"Row {idx + 2}: Stacking group must be 1 (STURDY) or 2 (FRAGILE)")
-                                continue
-                        except (ValueError, TypeError):
-                            errors.append(f"Row {idx + 2}: Stacking group must be 1 (STURDY) or 2 (FRAGILE)")
-                            continue
-            
-            if 'max_load_bearing_kg' in mapped_cols:
-                val = row[mapped_cols['max_load_bearing_kg']]
-                if pd.notna(val) and str(val).strip() and str(val).strip().lower() not in ['nan', 'none', 'null', '']:
-                    try:
-                        f_load = float(val)
-                        if f_load > 0:
-                            item_data['max_load_bearing_kg'] = f_load
-                        else:
-                            item_data['max_load_bearing_kg'] = None
-                    except (ValueError, TypeError):
-                        pass
-                else:
-                    item_data['max_load_bearing_kg'] = None
             
             # Validate required fields
             if not item_data['item_id'] or not item_data['description']:

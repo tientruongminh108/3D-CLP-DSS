@@ -8,7 +8,6 @@ from app.solver.geometry import (
     Posture,
     FLOOR_EPSILON,
     check_support_ratio,
-    check_load_bearing,
     check_cog_balance,
 )
 from app.solver.parsing import Box
@@ -85,38 +84,21 @@ def check_stackability(
     # compaction are still correctly treated as floor-level items.
     if candidate.min_z > FLOOR_EPSILON:
         support_indices = []
-        support_weights = []
-        support_limits = []
-
         c_min_z = candidate.min_z
         for i, placed in enumerate(placed_boxes):
             if abs(placed.max_z - c_min_z) < 1e-6 and placed.supports(candidate):
                 support_indices.append(i)
-                support_weights.append(placed_boxes_data[i].weight_kg)
-                support_limits.append(placed_boxes_data[i].max_load_bearing_kg)
 
         if not support_indices:
             return False
 
+        # Weight-based stacking rule: an upper carton must not be heavier
+        # than any carton directly supporting it underneath (w_upper <= w_supporting).
+        cand_unit_wt = getattr(candidate_box, 'boxes', [candidate_box])[0].weight_kg
         for idx in support_indices:
-            if placed_boxes_data[idx].stacking_group == 2:
+            sup_unit_wt = getattr(placed_boxes_data[idx], 'boxes', [placed_boxes_data[idx]])[0].weight_kg
+            if cand_unit_wt > sup_unit_wt + 1e-3:
                 return False
-
-        # Pass the BoundingBox objects for support check
-        support_bboxes = [placed_boxes[i] for i in support_indices]
-        # BUG-02 fix: pass the full placed lists so check_load_bearing can
-        # compute cumulative load already resting on each support box.
-        all_weights = [placed_boxes_data[i].weight_kg for i in range(len(placed_boxes))]
-        if not check_load_bearing(
-            candidate,
-            support_bboxes,
-            candidate_box.weight_kg,
-            support_weights,
-            support_limits,
-            all_placed_boxes=placed_boxes,
-            all_placed_weights=all_weights,
-        ):
-            return False
 
     return True
 

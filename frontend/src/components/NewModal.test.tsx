@@ -27,7 +27,7 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
       itemApi.list = vi.fn().mockResolvedValue([])
       itemApi.create = vi.fn().mockResolvedValue({
         id: 1, item_id: 'NEW-ITEM', description: 'New Item', length_cm: 100, width_cm: 50, height_cm: 40, weight_kg: 20,
-        this_way_up: true, stacking_group: 1, max_load_bearing_kg: null, created_at: '', updated_at: ''
+        this_way_up: true, created_at: '', updated_at: ''
       })
 
       renderWithRouter(<ItemMasterTable />)
@@ -46,8 +46,6 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
       expect(screen.getByLabelText(/height \(cm\) \*/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/weight \(kg\) \*/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/this way up/i)).toBeInTheDocument()
-      expect(screen.getByLabelText(/stacking group \*/i)).toBeInTheDocument()
-      expect(screen.getByLabelText(/max load bearing \(kg\)/i)).toBeInTheDocument()
     })
 
     it('FE-18: Modal stays open on validation error', async () => {
@@ -86,11 +84,11 @@ describe('+ New Modal (Section 6.4 - FE-17 to FE-19)', () => {
       itemApi.list = vi.fn().mockResolvedValue([])
       itemApi.create = vi.fn().mockResolvedValueOnce({
         id: 1, item_id: 'NEW-ITEM', description: 'New Item', length_cm: 100, width_cm: 50, height_cm: 40, weight_kg: 20,
-        this_way_up: true, stacking_group: 1, max_load_bearing_kg: null, created_at: '', updated_at: ''
+        this_way_up: true, created_at: '', updated_at: ''
       })
       itemApi.list = vi.fn().mockResolvedValueOnce([
         { id: 1, item_id: 'NEW-ITEM', description: 'New Item', length_cm: 100, width_cm: 50, height_cm: 40, weight_kg: 20,
-          this_way_up: true, stacking_group: 1, max_load_bearing_kg: null, created_at: '', updated_at: '' }
+          this_way_up: true, created_at: '', updated_at: '' }
       ])
 
       renderWithRouter(<ItemMasterTable />)

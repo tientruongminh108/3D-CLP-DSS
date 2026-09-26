@@ -181,7 +181,7 @@ npx vitest
 
 ### Solver Pipeline
 1. **Parse & Join**: Read packing list, resolve attributes against item master, expand carton quantities into individual items, inflate X/Y dimensions by `TOLERANCE_GAP_CM`, and detect shipment type (FCL vs LCL).
-2. **Initial Sort**: Order boxes by customer delivery sequence (LCL), stacking group, volume descending, and weight descending.
+2. **Initial Sort**: Order boxes by customer delivery sequence (LCL), volume descending, and weight descending.
 3. **Block Generation**: Combine identical and similar cartons into composite blocks capped at `MAX_BLOCK_FRACTION` (0.2 for search, 0.4 for reporting) to prevent rigid walls and keep search space flexible.
 4. **Genetic Algorithm**: Evolve posture assignments across blocks and boxes; decode placements via the **Improved Placeable Point Strategy** with corner-first seeding and contact-ratio scoring.
 5. **Simulated Annealing**: Periodically refine the elite individual through local random re-posturing every `SA_INTERVAL_GENERATIONS`.
@@ -203,13 +203,12 @@ It is critical to distinguish between the two volume figures used in the system:
 1. **Weight Capacity**: Total cargo weight must not exceed the container payload limit.
 2. **Orientation (`This_Way_Up`)**: Upright cartons are restricted to rotation around the vertical axis (`postures: {1, 2}`).
 3. **Non-Overlap**: Strict 3D bounding box disjointness with tolerance padding.
-4. **Stackability**:
+4. **Stackability & Weight-Based Stacking**:
    - **Physical Support Ratio**: At least `SUPPORT_RATIO` (0.6, allowing up to 40% overhang) of the base area must be supported by boxes directly underneath.
-   - **Load-Bearing Compatibility**: Sturdy furniture (Group 1) can support lighter furniture (Group 2); Group 2 cannot support any items.
-5. **Numeric Load-Bearing Limit**: Cumulative downward weight on any carton cannot exceed its declared `Max_Load_Bearing_kg`.
-6. **Center of Gravity (CoG)**: Overall load center of mass must lie within tolerance bands ($\pm 5\%$ length/width, $+10\%$ height).
-7. **Tolerance Gap**: 2.0 cm horizontal clearance baked into box dimensions at expansion.
-8. **LIFO Delivery Order (LCL)**: Cargo for earlier delivery stops cannot be blocked by cargo for later delivery stops.
+   - **Weight Hierarchy**: Lighter cartons cannot support heavier cartons ($w_{\text{candidate}} \le w_{\text{supporting}}$).
+5. **Center of Gravity (CoG)**: Overall load center of mass must lie within tolerance bands ($\pm 5\%$ length/width, $+10\%$ height).
+6. **Tolerance Gap**: 2.0 cm horizontal clearance baked into box dimensions at expansion.
+7. **LIFO Delivery Order (LCL)**: Cargo for earlier delivery stops cannot be blocked by cargo for later delivery stops.
 
 ---
 
@@ -318,8 +317,8 @@ Container_Type,Internal_Length_cm,Internal_Width_cm,Internal_Height_cm,Max_Weigh
 
 ### item_master.csv
 ```csv
-Item_ID,Description,Length_cm,Width_cm,Height_cm,Weight_kg,This_Way_Up,Stacking_Group,Max_Load_Bearing_kg
-DT-8411,Dining Table,110,70,15,45.5,True,1,200
+Item_ID,Description,Length_cm,Width_cm,Height_cm,Weight_kg,This_Way_Up
+DT-8411,Dining Table,110,70,15,45.5,True
 ```
 
 ### packing_list.csv

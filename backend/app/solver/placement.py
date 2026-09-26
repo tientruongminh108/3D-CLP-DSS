@@ -197,7 +197,7 @@ def find_best_placement(
             # contact_ratio and same_item_ratio.
             top_fill_bonus = 0.0
             if ep_z > FLOOR_EPSILON:
-                top_fill_bonus = 0.3 * (ep_z / c_hgt)
+                top_fill_bonus = 0.8 * (ep_z / c_hgt)
 
             score = (
                 contact_wt * contact_ratio

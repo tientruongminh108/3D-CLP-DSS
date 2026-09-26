@@ -32,8 +32,6 @@ def create_fixture_plan_fcl() -> RunResult:
             height_cm=40,
             weight_kg=200.0,
             this_way_up=True,
-            stacking_group=1,
-            max_load_bearing_kg=1000.0,
             permitted_postures=[Posture.LWH, Posture.WLH],
             inflated_length=102,
             inflated_width=52,
@@ -55,8 +53,6 @@ def create_fixture_plan_fcl() -> RunResult:
             height_cm=40,
             weight_kg=200.0,
             this_way_up=True,
-            stacking_group=1,
-            max_load_bearing_kg=1000.0,
             permitted_postures=[Posture.LWH, Posture.WLH],
             inflated_length=102,
             inflated_width=52,
@@ -120,8 +116,6 @@ def create_fixture_plan_lcl() -> RunResult:
             height_cm=40,
             weight_kg=200.0,
             this_way_up=True,
-            stacking_group=1,
-            max_load_bearing_kg=1000.0,
             permitted_postures=[Posture.LWH, Posture.WLH],
             inflated_length=102,
             inflated_width=52,
@@ -143,8 +137,6 @@ def create_fixture_plan_lcl() -> RunResult:
             height_cm=50,
             weight_kg=150.0,
             this_way_up=False,
-            stacking_group=2,
-            max_load_bearing_kg=500.0,
             permitted_postures=list(Posture),
             inflated_length=82,
             inflated_width=62,
@@ -318,11 +310,11 @@ class TestConsoleSummary:
 class TestVisualizationData:
     """Tests for 3D visualization data preparation (Section 2.3 - OUT-13 to OUT-16)"""
 
-    def test_OUT_13_fcl_color_by_stacking_group(self):
-        """OUT-13: FCL boxes colored by Stacking_Group"""
+    def test_OUT_13_fcl_color_by_item_id(self):
+        """OUT-13: FCL boxes colored by item_id"""
         plan = create_fixture_plan_fcl()
-        color_keys = [box.stacking_group for box in plan.placed_boxes]
-        assert all(c in [1, 2] for c in color_keys)
+        color_keys = [box.item_id for box in plan.placed_boxes]
+        assert all(c for c in color_keys)
 
     def test_OUT_14_lcl_color_by_customer_code(self):
         """OUT-14: LCL boxes colored by Customer_Code"""
@@ -407,8 +399,6 @@ class TestOutputCoordinateIntegrity:
             height_cm=40,
             weight_kg=15.0,
             this_way_up=False,
-            stacking_group=1,
-            max_load_bearing_kg=None,
             permitted_postures=list(Posture),
             inflated_length=100,
             inflated_width=50,
@@ -464,8 +454,6 @@ class TestOutputCoordinateIntegrity:
             height_cm=30,
             weight_kg=10,
             this_way_up=False,
-            stacking_group=1,
-            max_load_bearing_kg=None,
             permitted_postures=list(Posture),
             inflated_length=50,
             inflated_width=40,
@@ -485,8 +473,6 @@ class TestOutputCoordinateIntegrity:
             height_cm=30,
             weight_kg=10,
             this_way_up=False,
-            stacking_group=1,
-            max_load_bearing_kg=None,
             permitted_postures=list(Posture),
             inflated_length=50,
             inflated_width=40,
@@ -560,8 +546,6 @@ class TestOutputCoordinateIntegrity:
                 "Height_cm": 35.0,
                 "Weight_kg": 15.0,
                 "This_Way_Up": False,
-                "Stacking_Group": 1,
-                "Max_Load_Bearing_kg": 500.0,
             },
             {
                 "Item_ID": "ITEM_B",
@@ -571,8 +555,6 @@ class TestOutputCoordinateIntegrity:
                 "Height_cm": 40.0,
                 "Weight_kg": 30.0,
                 "This_Way_Up": False,
-                "Stacking_Group": 1,
-                "Max_Load_Bearing_kg": 800.0,
             },
             {
                 "Item_ID": "ITEM_C",
@@ -582,8 +564,6 @@ class TestOutputCoordinateIntegrity:
                 "Height_cm": 25.0,
                 "Weight_kg": 10.0,
                 "This_Way_Up": True,
-                "Stacking_Group": 2,
-                "Max_Load_Bearing_kg": 300.0,
             },
         ])
 
@@ -642,7 +622,6 @@ class TestOutputCoordinateIntegrity:
                 "Height_cm": 40.0,
                 "Weight_kg": 15.0,
                 "This_Way_Up": True,
-                "Stacking_Group": 1,
                 "Permitted_Postures": "LWH,WLH",
             }
         ])

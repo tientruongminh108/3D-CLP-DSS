@@ -86,8 +86,6 @@ def run_deterministic_mock_pack(
         h_cm = float(item.height_cm) if item and getattr(item, 'height_cm', None) else 25.0
         wt_kg = float(item.weight_kg) if item and getattr(item, 'weight_kg', None) else 10.0
         this_way_up = bool(item.this_way_up) if item and hasattr(item, 'this_way_up') else True
-        stk_grp = int(item.stacking_group) if item and hasattr(item, 'stacking_group') else 1
-        max_load = float(item.max_load_bearing_kg) if item and getattr(item, 'max_load_bearing_kg', None) else None
         desc = row.description or (item.description if item and getattr(item, 'description', None) else row.item_id)
 
         c_seq = customer_seq_map.get(row.customer_code, 1) if row.customer_code else 1
@@ -106,8 +104,6 @@ def run_deterministic_mock_pack(
                 "height_cm": h_cm,
                 "weight_kg": wt_kg,
                 "this_way_up": this_way_up,
-                "stacking_group": stk_grp,
-                "max_load_bearing_kg": max_load,
             })
 
     # Sort cartons deterministically:
@@ -220,8 +216,6 @@ def run_deterministic_mock_pack(
             height_cm=box_h,
             weight_kg=box_wt,
             this_way_up=carton["this_way_up"],
-            stacking_group=carton["stacking_group"],
-            max_load_bearing_kg=carton["max_load_bearing_kg"],
             permitted_postures=[Posture.LWH],
             inflated_length=box_l,
             inflated_width=box_w,

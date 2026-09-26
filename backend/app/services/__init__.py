@@ -79,8 +79,6 @@ def generate_mock_run_result(
             height_cm=box_height,
             weight_kg=round(random.uniform(5, 500), 1),
             this_way_up=random.choice([True, False]),
-            stacking_group=random.choice([1, 2]),
-            max_load_bearing_kg=round(random.uniform(100, 2000), 1) if random.choice([True, False]) else None,
             permitted_postures=[Posture(p) for p in [1, 2, 3, 4, 5, 6]],
             inflated_length=box_length + 2,
             inflated_width=box_width + 2,
@@ -242,7 +240,6 @@ class ItemService:
 
     def to_item_base(self, item: Item):
         from app.core.models import ItemBase
-        stk = item.stacking_group if item.stacking_group in (1, 2) else 1
         return ItemBase(
             item_id=item.item_id,
             description=item.description,
@@ -251,8 +248,6 @@ class ItemService:
             height_cm=item.height_cm,
             weight_kg=item.weight_kg,
             this_way_up=bool(item.this_way_up),
-            stacking_group=stk,
-            max_load_bearing_kg=item.max_load_bearing_kg,
         )
 
     def get_all_as_dict(self) -> dict:
@@ -416,8 +411,6 @@ class RunService:
                         "Height_cm": float(it.height_cm),
                         "Weight_kg": float(it.weight_kg),
                         "This_Way_Up": bool(it.this_way_up),
-                        "Stacking_Group": int(it.stacking_group) if it.stacking_group in (1, 2) else 1,
-                        "Max_Load_Bearing_kg": float(it.max_load_bearing_kg) if it.max_load_bearing_kg else None,
                     })
                 else:
                     item_records.append({
@@ -428,8 +421,6 @@ class RunService:
                         "Height_cm": 25.0,
                         "Weight_kg": 10.0,
                         "This_Way_Up": True,
-                        "Stacking_Group": 1,
-                        "Max_Load_Bearing_kg": None,
                     })
             item_master_df = pd.DataFrame(item_records)
 

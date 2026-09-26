@@ -36,8 +36,6 @@ class Item(Base):
     height_cm = Column(Float, nullable=False)
     weight_kg = Column(Float, nullable=False)
     this_way_up = Column(Boolean, default=True, nullable=False)
-    stacking_group = Column(Integer, default=1, nullable=False)
-    max_load_bearing_kg = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -46,7 +44,6 @@ class Item(Base):
         CheckConstraint("width_cm > 0", name="item_width_positive"),
         CheckConstraint("height_cm > 0", name="item_height_positive"),
         CheckConstraint("weight_kg > 0", name="item_weight_positive"),
-        CheckConstraint("stacking_group IN (1, 2)", name="item_stacking_group_valid"),
     )
 
 
@@ -109,7 +106,7 @@ def init_db():
 
 
 def seed_defaults(db_session=None):
-    """Seed default container and items if database is empty."""
+    """Seed default container if database has no containers."""
     db = db_session or SessionLocal()
     try:
         container_count = db.query(Container).count()
@@ -123,52 +120,6 @@ def seed_defaults(db_session=None):
             )
             db.add(default_container)
             db.commit()
-
-        item_count = db.query(Item).count()
-        if item_count == 0:
-            import os
-            import pandas as pd
-            csv_paths = [
-                os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "item_master.csv"),
-                os.path.join(os.path.dirname(__file__), "..", "..", "data", "item_master.csv"),
-                "/app/data/item_master.csv",
-            ]
-            for p in csv_paths:
-                p = os.path.abspath(p)
-                if os.path.exists(p):
-                    try:
-                        df = pd.read_csv(p, encoding="utf-8-sig")
-                        for _, row in df.iterrows():
-                            val_twu = row.get("This_Way_Up", True)
-                            twu = str(val_twu).strip().lower() in ["true", "yes", "1", "y", "t"] if pd.notna(val_twu) else True
-                            val_sg = row.get("Stacking_Group", 1)
-                            try:
-                                sg = int(val_sg) if int(val_sg) in (1, 2) else 1
-                            except Exception:
-                                sg = 1
-                            val_load = row.get("Max_Load_Bearing_kg", None)
-                            max_load = None
-                            if pd.notna(val_load) and str(val_load).strip() and str(val_load).strip().lower() not in ["nan", "none", "null", ""]:
-                                try:
-                                    max_load = float(val_load)
-                                except Exception:
-                                    max_load = None
-                            item = Item(
-                                item_id=str(row["Item_ID"]).strip(),
-                                description=str(row["Description"]).strip(),
-                                length_cm=float(row["Length_cm"]),
-                                width_cm=float(row["Width_cm"]),
-                                height_cm=float(row["Height_cm"]),
-                                weight_kg=float(row["Weight_kg"]),
-                                this_way_up=twu,
-                                stacking_group=sg,
-                                max_load_bearing_kg=max_load,
-                            )
-                            db.add(item)
-                        db.commit()
-                        break
-                    except Exception:
-                        db.rollback()
     except Exception:
         db.rollback()
     finally:

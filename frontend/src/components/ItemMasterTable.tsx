@@ -21,8 +21,6 @@ export function ItemMasterTable() {
     height_cm: 0,
     weight_kg: 0,
     this_way_up: true,
-    stacking_group: 1,
-    max_load_bearing_kg: undefined,
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const { success: toastSuccess, error: toastError } = useToastStore()
@@ -95,9 +93,6 @@ export function ItemMasterTable() {
     if (formData.width_cm <= 0) newErrors.width_cm = 'Width must be > 0'
     if (formData.height_cm <= 0) newErrors.height_cm = 'Height must be > 0'
     if (formData.weight_kg <= 0) newErrors.weight_kg = 'Weight must be > 0'
-    if (formData.max_load_bearing_kg !== undefined && formData.max_load_bearing_kg <= 0) {
-      newErrors.max_load_bearing_kg = 'Must be > 0'
-    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
@@ -132,8 +127,6 @@ export function ItemMasterTable() {
       height_cm: item.height_cm,
       weight_kg: item.weight_kg,
       this_way_up: item.this_way_up,
-      stacking_group: item.stacking_group,
-      max_load_bearing_kg: item.max_load_bearing_kg || undefined,
     })
     setShowModal(true)
   }
@@ -199,8 +192,6 @@ export function ItemMasterTable() {
       height_cm: 0,
       weight_kg: 0,
       this_way_up: true,
-      stacking_group: 1,
-      max_load_bearing_kg: undefined,
     })
     setErrors({})
   }
@@ -342,8 +333,6 @@ export function ItemMasterTable() {
               <th>Dims (L×W×H)</th>
               <th>Weight</th>
               <th>This Way Up</th>
-              <th>Stack Group</th>
-              <th>Max Load</th>
               <th className="actions">Actions</th>
             </tr>
           </thead>
@@ -364,8 +353,6 @@ export function ItemMasterTable() {
                 <td>{item.length_cm}×{item.width_cm}×{item.height_cm}</td>
                 <td>{item.weight_kg} kg</td>
                 <td>{item.this_way_up ? 'Yes' : 'No'}</td>
-                <td>Group {item.stacking_group}</td>
-                <td>{item.max_load_bearing_kg ? `${item.max_load_bearing_kg} kg` : '—'}</td>
                 <td className="actions">
                   <button className="btn-icon" onClick={() => handleEdit(item)} title="Edit">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -489,32 +476,6 @@ export function ItemMasterTable() {
                         <option value="false">No</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="label" htmlFor="stacking">Stacking Group *</label>
-                      <select
-                        id="stacking"
-                        className="input"
-                        value={formData.stacking_group}
-                        onChange={(e) => setFormData({ ...formData, stacking_group: parseInt(e.target.value, 10) })}
-                      >
-                        <option value={1}>1 (Sturdy)</option>
-                        <option value={2}>2 (Fragile)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="mb-4">
-                    <label className="label" htmlFor="max_load">Max Load Bearing (kg)</label>
-                    <input
-                      id="max_load"
-                      type="number"
-                      step="0.1"
-                      className={`input ${errors.max_load_bearing_kg ? 'input-error' : ''}`}
-                      value={formData.max_load_bearing_kg || ''}
-                      onChange={(e) => setFormData({ ...formData, max_load_bearing_kg: e.target.value ? parseFloat(e.target.value) : undefined })}
-                    />
-                    {errors.max_load_bearing_kg && <p className="error-text">{errors.max_load_bearing_kg}</p>}
-                    <p className="text-sm text-light mt-1">Leave empty for unlimited</p>
                   </div>
                 </div>
 

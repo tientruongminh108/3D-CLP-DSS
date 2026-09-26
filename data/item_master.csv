@@ -1,31 +1,31 @@
-Item_ID,Description,Length_cm,Width_cm,Height_cm,Weight_kg,This_Way_Up,Stacking_Group,Max_Load_Bearing_kg
-DT-8411,Solid Wood Dining Table Carton (KD),200,110,22,78.0,False,1,300.0
-DT-8629,Solid Wood Dining Table Carton Large (KD),230,125,25,95.0,False,1,300.0
-WD-8402,3-Door Wardrobe Carton (KD),260,68,18,98.0,False,1,250.0
-WD-9320,2-Door Wardrobe Carton (KD),225,65,17,78.0,False,1,250.0
-BS-4111,Bookshelf 5-Tier Carton (KD),110,36,19,42.0,False,1,150.0
-CT-4025,Coffee Table Carton Solid Wood (KD),125,68,24,46.0,False,1,180.0
-TV-9387,TV Console Carton (KD),185,48,17,60.0,False,1,200.0
-CN-8794,Console Table Carton Solid Wood (KD),148,48,22,72.0,False,1,180.0
-BF-4050,Bed Frame Headboard Carton (KD),200,10,112,34.0,True,1,
-BF-2542,Bed Frame Base Carton (KD),240,110,15,56.0,False,1,220.0
-CD-8316,Chest of Drawers Carton 4-Drawer (KD),98,55,20,52.0,False,1,150.0
-SB-5970,Sideboard Buffet Carton (KD),200,55,22,68.0,False,1,200.0
-DB-3323,Dining Bench Carton Solid Wood (KD),172,43,19,25.0,False,1,120.0
-SD-2485,Study Desk Carton (KD),148,74,19,48.0,False,1,150.0
-SF-9825,Sofa Frame Carton 3-Seater (KD),245,98,24,85.0,False,1,220.0
-NS-1686,Nightstand Carton (KD),58,49,23,12.0,False,2,
-NS-7490,Nightstand Carton Assembled,58,49,63,17.0,True,2,40.0
-DC-8421,Dining Chair Carton (KD),55,52,14,9.0,False,2,60.0
-DC-3580,Dining Chair Carton Assembled,55,60,105,11.0,True,2,30.0
-BR-1245,Bar Stool Carton,40,40,86,5.8,False,2,25.0
-BR-9656,Bar Stool Carton Stackable,40,40,80,5.4,False,2,25.0
-RC-2034,Rattan Chair Carton,67,69,103,8.0,False,2,20.0
-RK-1975,Rocking Chair Carton Wooden,75,103,108,14.5,False,2,20.0
-OT-1584,Ottoman Carton Fabric,63,63,48,9.0,False,2,15.0
-RS-4116,Recliner Sofa Chair Carton,108,114,115,42.0,False,2,
-WS-4963,Wall Shelf Carton Floating,92,23,7,4.5,False,2,10.0
-CD-1492,Chest of Drawers Carton Assembled,98,55,115,60.0,True,2,50.0
-SD-8601,Study Desk Carton Assembled,148,74,86,53.0,True,2,40.0
-TV-6345,TV Console Carton Assembled,185,48,52,68.0,True,2,60.0
-BS-8217,Bookshelf Carton Assembled 5-Tier,110,36,207,50.0,True,2,
+Item_ID,Description,Length_cm,Width_cm,Height_cm,Weight_kg,This_Way_Up
+DT-8411,Solid Wood Dining Table Carton (KD),200,110,22,78,FALSE
+DT-8629,Solid Wood Dining Table Carton Large (KD),230,125,25,95,FALSE
+WD-8402,3-Door Wardrobe Carton (KD),260,68,18,98,FALSE
+WD-9320,2-Door Wardrobe Carton (KD),225,65,17,78,FALSE
+BS-4111,Bookshelf 5-Tier Carton (KD),110,36,19,42,FALSE
+CT-4025,Coffee Table Carton Solid Wood (KD),125,68,24,46,FALSE
+TV-9387,TV Console Carton (KD),185,48,17,60,FALSE
+CN-8794,Console Table Carton Solid Wood (KD),148,48,22,72,FALSE
+BF-4050,Bed Frame Headboard Carton (KD),200,10,112,34,TRUE
+BF-2542,Bed Frame Base Carton (KD),240,110,15,56,FALSE
+CD-8316,Chest of Drawers Carton 4-Drawer (KD),98,55,20,52,FALSE
+SB-5970,Sideboard Buffet Carton (KD),200,55,22,68,FALSE
+DB-3323,Dining Bench Carton Solid Wood (KD),172,43,19,25,FALSE
+SD-2485,Study Desk Carton (KD),148,74,19,48,FALSE
+SF-9825,Sofa Frame Carton 3-Seater (KD),245,98,24,85,FALSE
+NS-1686,Nightstand Carton (KD),58,49,23,12,FALSE
+NS-7490,Nightstand Carton Assembled,58,49,63,17,TRUE
+DC-8421,Dining Chair Carton (KD),55,52,14,9,FALSE
+DC-3580,Dining Chair Carton Assembled,55,60,105,11,TRUE
+BR-1245,Bar Stool Carton,40,40,86,5.8,FALSE
+BR-9656,Bar Stool Carton Stackable,40,40,80,5.4,FALSE
+RC-2034,Rattan Chair Carton,67,69,103,8,FALSE
+RK-1975,Rocking Chair Carton Wooden,75,103,108,14.5,FALSE
+OT-1584,Ottoman Carton Fabric,63,63,48,9,FALSE
+RS-4116,Recliner Sofa Chair Carton,108,114,115,42,FALSE
+WS-4963,Wall Shelf Carton Floating,92,23,7,4.5,FALSE
+CD-1492,Chest of Drawers Carton Assembled,98,55,115,60,TRUE
+SD-8601,Study Desk Carton Assembled,148,74,86,53,TRUE
+TV-6345,TV Console Carton Assembled,185,48,52,68,TRUE
+BS-8217,Bookshelf Carton Assembled 5-Tier,110,36,207,50,TRUE

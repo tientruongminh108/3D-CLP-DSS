@@ -6,7 +6,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.solver.parsing import Box
 from app.solver.block_generation import Block
 from app.solver.geometry import Dimensions, Position, BoundingBox, Posture, ExtremePoint
-from app.solver.sorting import initial_sort, resort_after_blocks, _get_unit_item_id
+from app.solver.sorting import initial_sort, resort_after_blocks
+from app.solver.utils import get_unit_item_id
 from app.solver.placement import corner_points_for, find_best_placement
 
 
@@ -22,8 +23,6 @@ def make_box(box_id, item_id, l, w, h, wt=10.0, cust="CUST1", seq=1):
         height_cm=h,
         weight_kg=wt,
         this_way_up=False,
-        stacking_group=1,
-        max_load_bearing_kg=None,
         permitted_postures=[Posture.LWH, Posture.WLH],
         inflated_length=l,
         inflated_width=w,
@@ -47,7 +46,7 @@ class TestClusteringHeuristics(unittest.TestCase):
         units = [leftover_a, block_b, leftover_b, block_a]
         sorted_units = resort_after_blocks(units, "FCL")
 
-        item_sequence = [_get_unit_item_id(u) for u in sorted_units]
+        item_sequence = [get_unit_item_id(u) for u in sorted_units]
         print("\nFCL sorted item sequence:", item_sequence)
 
         # All ITEM_A units should be consecutive, and all ITEM_B units should be consecutive

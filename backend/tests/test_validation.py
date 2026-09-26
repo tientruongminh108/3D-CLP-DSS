@@ -123,34 +123,6 @@ class TestItemValidation:
             error_detail = response.json()["detail"]
             assert any(field in str(e).lower() for e in error_detail)
 
-    def test_ITEM_02_invalid_stacking_group_rejected(self, db_session):
-        """ITEM-02: Stacking_Group = 3 should be rejected"""
-        payload = {
-            "item_id": "TEST-STACK-3",
-            "description": "Test Item",
-            "length_cm": 100,
-            "width_cm": 50,
-            "height_cm": 40,
-            "weight_kg": 20,
-            "stacking_group": 3,
-        }
-        response = client.post("/api/items", json=payload)
-        assert response.status_code == 422
-
-    def test_ITEM_03_string_stacking_group_rejected(self, db_session):
-        """ITEM-03: Stacking_Group as string should be rejected"""
-        payload = {
-            "item_id": "TEST-STACK-STR",
-            "description": "Test Item",
-            "length_cm": 100,
-            "width_cm": 50,
-            "height_cm": 40,
-            "weight_kg": 20,
-            "stacking_group": "heavy",
-        }
-        response = client.post("/api/items", json=payload)
-        assert response.status_code == 422
-
     def test_ITEM_04_non_boolean_this_way_up(self, db_session):
         """ITEM-04: This_Way_Up with non-boolean should be rejected"""
         for val in ["yes", 1, "", "true"]:
@@ -166,48 +138,6 @@ class TestItemValidation:
             response = client.post("/api/items", json=payload)
             assert response.status_code == 422, f"Value {val} should be rejected"
 
-    def test_ITEM_05_optional_max_load_bearing_null(self, db_session):
-        """ITEM-05: Max_Load_Bearing_kg omitted should be stored as NULL"""
-        payload = {
-            "item_id": "TEST-NO-MAXLOAD",
-            "description": "Test Item",
-            "length_cm": 100,
-            "width_cm": 50,
-            "height_cm": 40,
-            "weight_kg": 20,
-        }
-        response = client.post("/api/items", json=payload)
-        assert response.status_code == 201
-        data = response.json()
-        assert data["max_load_bearing_kg"] is None
-
-    def test_ITEM_06_zero_max_load_bearing_rejected(self, db_session):
-        """ITEM-06: Max_Load_Bearing_kg = 0 should be rejected"""
-        payload = {
-            "item_id": "TEST-ZERO-MAXLOAD",
-            "description": "Test Item",
-            "length_cm": 100,
-            "width_cm": 50,
-            "height_cm": 40,
-            "weight_kg": 20,
-            "max_load_bearing_kg": 0,
-        }
-        response = client.post("/api/items", json=payload)
-        assert response.status_code == 422
-
-    def test_ITEM_07_negative_max_load_bearing_rejected(self, db_session):
-        """ITEM-07: Max_Load_Bearing_kg negative should be rejected"""
-        payload = {
-            "item_id": "TEST-NEG-MAXLOAD",
-            "description": "Test Item",
-            "length_cm": 100,
-            "width_cm": 50,
-            "height_cm": 40,
-            "weight_kg": 20,
-            "max_load_bearing_kg": -10,
-        }
-        response = client.post("/api/items", json=payload)
-        assert response.status_code == 422
 
     def test_ITEM_08_duplicate_item_id_rejected(self, db_session):
         """ITEM-08: Duplicate Item_ID should be rejected"""

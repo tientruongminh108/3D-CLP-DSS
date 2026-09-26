@@ -5,11 +5,6 @@ from datetime import datetime
 import uuid
 
 
-class StackingGroup(int, Enum):
-    STURDY = 1
-    FRAGILE = 2
-
-
 class Posture(int, Enum):
     LWH = 1
     WLH = 2
@@ -44,31 +39,12 @@ class ItemBase(BaseModel):
     height_cm: float = Field(..., gt=0)
     weight_kg: float = Field(..., gt=0)
     this_way_up: bool = True
-    stacking_group: StackingGroup = StackingGroup.STURDY
-    max_load_bearing_kg: Optional[float] = Field(None, gt=0)
 
     @field_validator("this_way_up", mode="before")
     @classmethod
     def validate_this_way_up(cls, v):
         if not isinstance(v, bool):
             raise ValueError("This_Way_Up must be a boolean (true/false)")
-        return v
-
-    @field_validator("stacking_group", mode="before")
-    @classmethod
-    def validate_stacking_group(cls, v):
-        if isinstance(v, int):
-            if v not in (1, 2):
-                raise ValueError("Stacking group must be 1 (STURDY) or 2 (FRAGILE)")
-            return StackingGroup(v)
-        if isinstance(v, str):
-            try:
-                iv = int(v)
-                if iv not in (1, 2):
-                    raise ValueError("Stacking group must be 1 (STURDY) or 2 (FRAGILE)")
-                return StackingGroup(iv)
-            except ValueError:
-                raise ValueError("Stacking group must be 1 (STURDY) or 2 (FRAGILE)")
         return v
 
 
@@ -83,8 +59,6 @@ class ItemUpdate(BaseModel):
     height_cm: Optional[float] = Field(None, gt=0)
     weight_kg: Optional[float] = Field(None, gt=0)
     this_way_up: Optional[bool] = None
-    stacking_group: Optional[StackingGroup] = None
-    max_load_bearing_kg: Optional[float] = Field(None, gt=0)
 
 
 class Item(ItemBase):
@@ -94,23 +68,6 @@ class Item(ItemBase):
 
     class Config:
         from_attributes = True
-
-    @field_validator("stacking_group", mode="before")
-    @classmethod
-    def coerce_db_stacking_group(cls, v):
-        if isinstance(v, int):
-            if v in (1, 2):
-                return StackingGroup(v)
-            return StackingGroup.STURDY
-        if isinstance(v, str):
-            try:
-                iv = int(v)
-                if iv in (1, 2):
-                    return StackingGroup(iv)
-            except ValueError:
-                pass
-            return StackingGroup.STURDY
-        return v
 
 
 class ContainerBase(BaseModel):
@@ -173,8 +130,6 @@ class PackingListPreviewRow(BaseModel):
     height_cm: float
     weight_kg: float
     this_way_up: bool
-    stacking_group: int
-    max_load_bearing_kg: Optional[float]
 
 
 class PackingListPreview(BaseModel):
@@ -216,8 +171,6 @@ class Box(BaseModel):
     height_cm: float
     weight_kg: float
     this_way_up: bool = True
-    stacking_group: int = 1
-    max_load_bearing_kg: Optional[float] = None
     permitted_postures: List[Posture] = [Posture.LWH]
     inflated_length: float = 0
     inflated_width: float = 0

@@ -28,15 +28,12 @@ def test_parse_item_master():
         "Height_cm": 15,
         "Weight_kg": 45.5,
         "This_Way_Up": True,
-        "Stacking_Group": 1,
-        "Max_Load_Bearing_kg": 200,
     }])
     items = parse_item_master(df)
     assert "DT-8411" in items
     item = items["DT-8411"]
     assert item.length_cm == 110
     assert item.this_way_up is True
-    assert item.stacking_group == 1
 
 
 def test_detect_shipment_type_fcl():
@@ -71,31 +68,34 @@ def test_initial_sort_fcl():
         Box(
             box_id="A_1", item_id="A", po_no="PO-1", customer_code=None, customer_sequence=0,
             length_cm=100, width_cm=50, height_cm=40, weight_kg=20,
-            this_way_up=True, stacking_group=1, max_load_bearing_kg=100,
+            this_way_up=True,
             permitted_postures=[Posture.LWH, Posture.WLH],
             inflated_length=102, inflated_width=52, inflated_height=40,
         ),
         Box(
             box_id="B_1", item_id="B", po_no="PO-1", customer_code=None, customer_sequence=0,
             length_cm=80, width_cm=60, height_cm=50, weight_kg=30,
-            this_way_up=True, stacking_group=2, max_load_bearing_kg=50,
+            this_way_up=True,
             permitted_postures=[Posture.LWH, Posture.WLH],
             inflated_length=82, inflated_width=62, inflated_height=50,
         ),
         Box(
             box_id="C_1", item_id="C", po_no="PO-1", customer_code=None, customer_sequence=0,
             length_cm=120, width_cm=40, height_cm=30, weight_kg=15,
-            this_way_up=False, stacking_group=1, max_load_bearing_kg=100,
+            this_way_up=False,
             permitted_postures=list(Posture),
             inflated_length=122, inflated_width=42, inflated_height=30,
         ),
     ]
 
     sorted_boxes = initial_sort(boxes, "FCL")
-    # stacking_group 1 (sturdy) comes first, then by volume desc, then weight desc
-    assert sorted_boxes[0].box_id == "A_1"  # stacking_group=1, volume=200000
-    assert sorted_boxes[1].box_id == "C_1"  # stacking_group=1, volume=144000
-    assert sorted_boxes[2].box_id == "B_1"  # stacking_group=2
+    # Volume desc, then weight desc
+    # Box B: 80*60*50 = 240000
+    # Box A: 100*50*40 = 200000
+    # Box C: 120*40*30 = 144000
+    assert sorted_boxes[0].box_id == "B_1"
+    assert sorted_boxes[1].box_id == "A_1"
+    assert sorted_boxes[2].box_id == "C_1"
 
 
 def test_initial_sort_lcl():
@@ -106,14 +106,14 @@ def test_initial_sort_lcl():
         Box(
             box_id="A_1", item_id="A", po_no="PO-1", customer_code="CUST-B", customer_sequence=2,
             length_cm=100, width_cm=50, height_cm=40, weight_kg=20,
-            this_way_up=True, stacking_group=1, max_load_bearing_kg=100,
+            this_way_up=True,
             permitted_postures=[Posture.LWH, Posture.WLH],
             inflated_length=102, inflated_width=52, inflated_height=40,
         ),
         Box(
             box_id="B_1", item_id="B", po_no="PO-1", customer_code="CUST-A", customer_sequence=1,
             length_cm=80, width_cm=60, height_cm=50, weight_kg=30,
-            this_way_up=True, stacking_group=2, max_load_bearing_kg=50,
+            this_way_up=True,
             permitted_postures=[Posture.LWH, Posture.WLH],
             inflated_length=82, inflated_width=62, inflated_height=50,
         ),
@@ -154,8 +154,6 @@ def _make_item(length, width, height, this_way_up=False):
         "Height_cm": float(height),
         "Weight_kg": 10.0,
         "This_Way_Up": this_way_up,
-        "Stacking_Group": 1,
-        "Max_Load_Bearing_kg": 100.0,
     }])
     return parse_item_master(df)
 

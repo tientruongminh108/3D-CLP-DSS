@@ -119,8 +119,6 @@ function Step1PackingList({
           height_cm: row.height_cm ?? 0,
           weight_kg: row.weight_kg ?? 0,
           this_way_up: row.this_way_up ?? false,
-          stacking_group: row.stacking_group ?? 1,
-          max_load_bearing_kg: row.max_load_bearing_kg ?? undefined,
         })),
         shipment_type: fullList.shipment_type,
         customer_count: fullList.customer_count,
@@ -321,7 +319,6 @@ function Step1PackingList({
                     <th className="px-3 py-2 text-right font-semibold text-slate-600 uppercase tracking-wider text-xs">Qty</th>
                     <th className="px-3 py-2 text-left font-semibold text-slate-600 uppercase tracking-wider text-xs">Dims (L×W×H) cm</th>
                     <th className="px-3 py-2 text-right font-semibold text-slate-600 uppercase tracking-wider text-xs">Weight (kg)</th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-600 uppercase tracking-wider text-xs">Stack</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -342,7 +339,6 @@ function Step1PackingList({
                         <td className="px-3 py-2 text-right text-slate-700">{row.qty_cartons}</td>
                         <td className="px-3 py-2 font-mono text-sm text-slate-700">{row.length_cm}&times;{row.width_cm}&times;{row.height_cm}</td>
                         <td className="px-3 py-2 text-right text-slate-700">{row.weight_kg}</td>
-                        <td className="px-3 py-2 text-slate-700">Group {row.stacking_group}</td>
                       </tr>
                     )
                   })}

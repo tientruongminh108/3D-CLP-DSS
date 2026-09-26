@@ -22,8 +22,6 @@ def make_box(box_id, length, width, height, weight=10.0, cust_seq=0, permitted_p
         height_cm=height,
         weight_kg=weight,
         this_way_up=True,
-        stacking_group=1,
-        max_load_bearing_kg=None,
         permitted_postures=postures,
         inflated_length=length,
         inflated_width=width,
