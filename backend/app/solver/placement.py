@@ -1,12 +1,14 @@
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 from app.config import get_settings
+from app.solver.utils import get_unit_item_id
 from app.solver.geometry import (
     Dimensions,
     Position,
     BoundingBox,
     Posture,
     ExtremePoint,
+    FLOOR_EPSILON,
     generate_extreme_points,
     sort_extreme_points,
     calculate_contact_ratio,
@@ -54,12 +56,10 @@ def corner_points_for(box: Box, box_dims: Dimensions, container_dims: Dimensions
     dx, dy, dz = box_dims.length, box_dims.width, box_dims.height
 
     corners = []
-    # --- Deep / rear-wall corners only ---
+    # --- Deep / rear-wall anchor only (rear-left corner) ---
     if shipment_type == "FCL" or box.customer_sequence == last_customer_sequence:
         # Deepest corner, left wall (x = L - dx, y = 0)
         corners.append(ExtremePoint(container_dims.length - dx, 0, 0))
-        # Deepest corner, right wall (x = L - dx, y = W - dy)
-        corners.append(ExtremePoint(container_dims.length - dx, container_dims.width - dy, 0))
 
     # Filter out corners that would place box outside container (large boxes)
     valid = []
@@ -95,17 +95,11 @@ def find_best_placement(
     best_score = -float('inf')
     saw_lifo_only_rejection = False
 
-    # Extract candidate item_id
-    box_item_id = getattr(box, 'item_id', None)
-    if not box_item_id and hasattr(box, 'boxes') and box.boxes:
-        box_item_id = box.boxes[0].item_id
-    box_item_id = box_item_id or ""
+    # Extract candidate item_id using the shared helper
+    box_item_id = get_unit_item_id(box)
 
-    # Pre-extract item_ids of placed items for fast affinity checks
-    placed_item_ids = [
-        getattr(p, 'item_id', None) or (p.boxes[0].item_id if hasattr(p, 'boxes') and p.boxes else "") or ""
-        for p in placed_boxes_data
-    ]
+    # Pre-extract item_ids of placed items using the same helper
+    placed_item_ids = [get_unit_item_id(p) for p in placed_boxes_data]
 
     # Pre-calculate dimensions for all permitted postures
     posture_specs = []
@@ -196,9 +190,19 @@ def find_best_placement(
             fp = dims.length * dims.width
             same_item_ratio = (same_item_contact_area / fp) if fp > 0 else 0.0
 
+            # Vertical-fill bonus: reward placing a box on top of existing items
+            # (ep_z > 0 means the box is stacking on something, not on the floor).
+            # Bonus is proportional to height utilisation so taller stacks get a
+            # slightly larger nudge — but it is capped to stay secondary to
+            # contact_ratio and same_item_ratio.
+            top_fill_bonus = 0.0
+            if ep_z > FLOOR_EPSILON:
+                top_fill_bonus = 0.3 * (ep_z / c_hgt)
+
             score = (
                 contact_wt * contact_ratio
                 + 1.5 * same_item_ratio
+                + top_fill_bonus
                 - residual_wt * (residual_vol / c_vol)
             )
 
@@ -361,11 +365,10 @@ def place_boxes_greedy(
                     break
             
             if placed_at_corner:
-                corner_consecutive_failures = 0  # Change 7: reset failure counter
+                corner_phase = False  # Initial rear anchor established; use find_best_placement for subsequent units to group same SKUs
                 continue
             else:
-                # Change 7: Only exit corner phase after 3 CONSECUTIVE failures
-                # This lets smaller later boxes still use corners
+                # Only exit corner phase after 3 CONSECUTIVE failures if no box fit the anchor yet
                 corner_consecutive_failures += 1
                 if corner_consecutive_failures >= 3:
                     corner_phase = False
@@ -423,6 +426,12 @@ def place_blocks_greedy(
     seen_points = {ExtremePoint(0, 0, 0)}
     placement_count = 0
 
+    # Hoist settings weights out of the inner loop (Fix #6)
+    _settings = get_settings()
+    _contact_wt = _settings.CONTACT_RATIO_WEIGHT
+    _residual_wt = _settings.RESIDUAL_VOLUME_WEIGHT
+    _c_vol = container_dims.volume()
+
     for block in blocks:
         sorted_eps = sort_extreme_points(extreme_points)
 
@@ -463,8 +472,8 @@ def place_blocks_greedy(
                 residual_vol = calculate_residual_volume(candidate_bbox, placed_bboxes, container_dims)
 
                 score = (
-                    get_settings().CONTACT_RATIO_WEIGHT * contact_ratio
-                    - get_settings().RESIDUAL_VOLUME_WEIGHT * (residual_vol / container_dims.volume())
+                    _contact_wt * contact_ratio
+                    - _residual_wt * (residual_vol / _c_vol)
                 )
 
                 if score > best_score:
@@ -584,7 +593,7 @@ def decode_chromosome(
                         break
 
                 if placed_at_corner:
-                    corner_consecutive_failures = 0  # Change 7: reset on success
+                    corner_phase = False  # Initial rear anchor established; use find_best_placement for subsequent units to group same SKUs
                     break  # Break out of posture loop
                 else:
                     # This posture didn't fit at any corner. Stay in corner_phase

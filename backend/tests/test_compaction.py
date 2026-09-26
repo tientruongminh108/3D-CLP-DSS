@@ -134,3 +134,35 @@ class TestCompactionPass:
         assert len(new_data) == 2
         assert len(new_unplaced) == 0
         assert not new_bboxes[0].overlaps(new_bboxes[1])
+
+    def test_compact_preserves_vertical_support(self):
+        """Compaction must never slide an elevated box into thin air when its support is blocked."""
+        c_dims = Dimensions(length=100.0, width=20.0, height=50.0)
+        # B_FLOOR is at [0, 40], z=0. Blocked by B_BLOCK at [40, 60], z=0.
+        # B_TOP rests on B_FLOOR at [0, 40], z=[20, 40].
+        # In upper space (z >= 20), space is open up to x=100.
+        # Compaction must NOT slide B_TOP past B_FLOOR into thin air!
+        b_floor = make_box("B_FLOOR", length=40.0, width=20.0, height=20.0)
+        b_block = make_box("B_BLOCK", length=20.0, width=20.0, height=20.0)
+        b_top = make_box("B_TOP", length=40.0, width=20.0, height=20.0)
+
+        bbox_floor = BoundingBox(0.0, 0.0, 0.0, 40.0, 20.0, 20.0)
+        bbox_block = BoundingBox(40.0, 0.0, 0.0, 60.0, 20.0, 20.0)
+        bbox_top = BoundingBox(0.0, 0.0, 20.0, 40.0, 20.0, 40.0)
+
+        compacted = compact_x_rear(
+            [bbox_floor, bbox_block, bbox_top],
+            [b_floor, b_block, b_top],
+            c_dims,
+            is_lcl=False,
+            min_support_ratio=0.60,
+        )
+
+        # B_BLOCK slides to rear wall [80, 100]
+        # B_FLOOR slides flush against B_BLOCK: [40, 80]
+        # B_TOP can only slide as far as it remains supported by B_FLOOR
+        # Under no circumstance should B_TOP be in the air (unsupported)
+        from app.solver.geometry import check_support_ratio
+        top_box = next(b for b in compacted if b.min_z == 20.0)
+        assert check_support_ratio(top_box, compacted, 0.60)
+

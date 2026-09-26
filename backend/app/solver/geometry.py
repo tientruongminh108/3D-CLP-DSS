@@ -37,7 +37,7 @@ class Dimensions:
             return Dimensions(l, h, w)
         elif posture == Posture.WHL:
             return Dimensions(w, h, l)
-        return Dimensions(l, w, h)
+        raise ValueError(f"Unknown posture: {posture}")
 
     def volume(self) -> float:
         return self.length * self.width * self.height
@@ -101,8 +101,10 @@ class BoundingBox:
         )
 
     def supports(self, other: "BoundingBox") -> bool:
+        # Use FLOOR_EPSILON (1e-4) so compaction-shifted surfaces are still
+        # recognised as touching — consistent with all other floor/contact checks.
         return (
-            abs(self.max_z - other.min_z) < 1e-6
+            abs(self.max_z - other.min_z) <= FLOOR_EPSILON
             and self.overlaps_xy(other)
         )
 
@@ -218,7 +220,7 @@ def calculate_contact_ratio(
 
     c_min_z = candidate_box.min_z
     for box in placed_boxes:
-        if abs(box.max_z - c_min_z) < 1e-6:
+        if abs(box.max_z - c_min_z) <= FLOOR_EPSILON:
             contact_area += box.contact_area(candidate_box)
 
     if footprint_area == 0:
@@ -250,6 +252,11 @@ def calculate_residual_volume(
 
 
 def calculate_cog(placed_boxes: List[BoundingBox], weights: List[float]) -> Position:
+    """Compute weighted centre of gravity in a single pass.
+
+    Avoids the previous 3-pass implementation that allocated N temporary
+    ``Position`` objects and iterated the full list three times.
+    """
     if not placed_boxes:
         return Position(0, 0, 0)
 
@@ -257,11 +264,13 @@ def calculate_cog(placed_boxes: List[BoundingBox], weights: List[float]) -> Posi
     if total_weight == 0:
         return Position(0, 0, 0)
 
-    cog_x = sum(b.center().x * w for b, w in zip(placed_boxes, weights)) / total_weight
-    cog_y = sum(b.center().y * w for b, w in zip(placed_boxes, weights)) / total_weight
-    cog_z = sum(b.center().z * w for b, w in zip(placed_boxes, weights)) / total_weight
+    cx = cy = cz = 0.0
+    for b, w in zip(placed_boxes, weights):
+        cx += ((b.min_x + b.max_x) * 0.5) * w
+        cy += ((b.min_y + b.max_y) * 0.5) * w
+        cz += ((b.min_z + b.max_z) * 0.5) * w
 
-    return Position(cog_x, cog_y, cog_z)
+    return Position(cx / total_weight, cy / total_weight, cz / total_weight)
 
 
 def get_permitted_postures(this_way_up: bool, max_load_bearing_kg: float = None, weight_kg: float = None) -> List[Posture]:
@@ -301,7 +310,7 @@ def check_support_ratio(
 
     c_min_z = candidate_box.min_z
     for box in placed_boxes:
-        if abs(box.max_z - c_min_z) < 1e-6:
+        if abs(box.max_z - c_min_z) <= FLOOR_EPSILON:
             contact_area += box.contact_area(candidate_box)
 
     if footprint_area == 0:
@@ -340,16 +349,17 @@ def check_load_bearing(
             if i != j and ref_boxes[j].supports(ref_boxes[i]):
                 load_on[j] += ref_weights[i]
 
+    # Build an id→index map so the inner loop is O(1) instead of O(N).
+    # list.index() scans the entire list on every call; with large placements
+    # that makes the overall function O(N²) per stackability check.
+    ref_id_map = {id(b): idx for idx, b in enumerate(ref_boxes)}
+
     for i, box in enumerate(placed_boxes):
         if box.supports(candidate_box):
             limit = placed_load_limits[i]
             if limit is not None:
-                # Find this box in the reference list to get its accumulated load
-                try:
-                    ref_idx = ref_boxes.index(box)
-                    already_loaded = load_on[ref_idx]
-                except ValueError:
-                    already_loaded = 0.0
+                ref_idx = ref_id_map.get(id(box), -1)
+                already_loaded = load_on[ref_idx] if ref_idx >= 0 else 0.0
                 if already_loaded + candidate_weight > limit:
                     return False
     return True
@@ -412,8 +422,18 @@ def project_point_down(
 
 
 def prune_dominated_extreme_points(points: List[ExtremePoint]) -> List[ExtremePoint]:
-    """Dominance pruning per Section 5.2: Q dominates P if Q is at least as good 
-    on all 3 axes with equality on at least 2 and strict improvement on the third."""
+    """Dominance pruning per Section 5.2: Q dominates P if Q is at least as good
+    on all 3 axes with equality on at least 2 and strict improvement on the third.
+
+    Performance notes:
+    - Input is sorted by (z, y, x) ascending; every ``q`` in ``pruned`` therefore
+      satisfies ``q.z <= p.z``, so the z-axis condition of the dominance test is
+      always true and need not be re-checked.
+    - A candidate ``q`` can never dominate ``p`` if ``q.x > p.x`` or
+      ``q.y > p.y`` — an early ``continue`` filters these out before the
+      more expensive equality-axis computation.
+    - ``equal_axes`` is computed with integer addition to avoid a temporary list.
+    """
     if not points:
         return []
 
@@ -423,15 +443,19 @@ def prune_dominated_extreme_points(points: List[ExtremePoint]) -> List[ExtremePo
     for p in points:
         dominated = False
         for q in pruned:
-            if (q.x <= p.x + 1e-9 and q.y <= p.y + 1e-9 and q.z <= p.z + 1e-9):
-                equal_axes = sum([
-                    abs(q.x - p.x) < 1e-9,
-                    abs(q.y - p.y) < 1e-9,
-                    abs(q.z - p.z) < 1e-9
-                ])
-                if equal_axes >= 2 and (q.x < p.x or q.y < p.y or q.z < p.z):
-                    dominated = True
-                    break
+            # q.z <= p.z always (insertion order from sorted list).
+            # Skip q's that are strictly worse than p on x or y — they cannot
+            # dominate p regardless of the z relationship.
+            if q.x > p.x + 1e-9 or q.y > p.y + 1e-9:
+                continue
+            # Inline equal_axes count — avoids a temporary list allocation.
+            eq_x = abs(q.x - p.x) < 1e-9
+            eq_y = abs(q.y - p.y) < 1e-9
+            eq_z = abs(q.z - p.z) < 1e-9
+            equal_axes = eq_x + eq_y + eq_z
+            if equal_axes >= 2 and (q.x < p.x or q.y < p.y or q.z < p.z):
+                dominated = True
+                break
         if not dominated:
             pruned.append(p)
 

@@ -65,10 +65,12 @@ container_dims = Dimensions(container_spec.usable_length, container_spec.usable_
 is_lcl = shipment_type == shipment_type.LCL
 last_cust = max(u.customer_sequence for u in all_units) if all_units else 0
 settings = get_settings()
-max_frac = settings.MAX_BLOCK_FRACTION
+max_frac_x = settings.MAX_BLOCK_FRACTION_X
+max_frac_y = settings.MAX_BLOCK_FRACTION_Y
+max_frac_z = settings.MAX_BLOCK_FRACTION_Z
 
 print(f'\nContainer usable: {container_dims.length:.1f} x {container_dims.width:.1f} x {container_dims.height:.1f}')
-print(f'MAX_BLOCK_FRACTION={max_frac}')
+print(f'MAX_BLOCK_FRACTION: X={max_frac_x}, Y={max_frac_y}, Z={max_frac_z}')
 print(f'Blocks: {len(blocks)}, Leftover: {len(leftover)}')
 
 # 1. Block dimensions vs limits
@@ -76,9 +78,9 @@ print('\n' + '='*70)
 print('1. BLOCK DIMENSIONS vs MAX_BLOCK_FRACTION LIMITS')
 print('='*70)
 for b in blocks:
-    lim_L = container_dims.length * max_frac
-    lim_W = container_dims.width * max_frac
-    lim_H = container_dims.height * max_frac
+    lim_L = container_dims.length * max_frac_x
+    lim_W = container_dims.width * max_frac_y
+    lim_H = container_dims.height * max_frac_z
     print(f'\n{b.block_id}: {len(b.contents)} cartons')
     print(f'  Native:     {b.length_cm:.1f} x {b.width_cm:.1f} x {b.height_cm:.1f}')
     print(f'  Inflated:   {b.inflated_length:.1f} x {b.inflated_width:.1f} x {b.inflated_height:.1f}')

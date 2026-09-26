@@ -56,3 +56,10 @@ class TestConfigurationDefaults:
         assert options.population_size == 50
         assert options.generations == 60
         assert options.tolerance_gap_cm == 1.0
+
+    def test_CFG_06_block_fraction_per_axis_defaults(self):
+        """CFG-06: Per-axis MAX_BLOCK_FRACTION settings"""
+        settings = get_settings()
+        assert settings.MAX_BLOCK_FRACTION_X == 0.20
+        assert settings.MAX_BLOCK_FRACTION_Y == 0.50
+        assert settings.MAX_BLOCK_FRACTION_Z == 0.50

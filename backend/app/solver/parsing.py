@@ -191,6 +191,9 @@ def expand_packing_list(
 
     # --- Issue 3: Fast-fail oversized item validation ---
     # Check each distinct item that appears in the packing list before expanding.
+    # Also populate the permitted_postures cache at the same time so the
+    # expansion loop below doesn't repeat the call for already-seen items.
+    permitted_cache: dict = {}  # item_id -> List[Posture]
     seen_item_ids: set = set()
     for row_idx, row in enumerate(packing_rows):
         item = items.get(row.item_id)
@@ -202,6 +205,7 @@ def expand_packing_list(
         if row.item_id not in seen_item_ids:
             seen_item_ids.add(row.item_id)
             permitted = get_permitted_postures(item.this_way_up, item.max_load_bearing_kg, item.weight_kg)
+            permitted_cache[row.item_id] = permitted
             if not _check_item_fits_container(item, container, permitted):
                 raise ValidationError(
                     f"Item_ID '{item.item_id}' "
@@ -219,7 +223,8 @@ def expand_packing_list(
 
         cust_seq = customer_sequence.get(row.customer_code, 0) if row.customer_code else 0
 
-        permitted = get_permitted_postures(item.this_way_up, item.max_load_bearing_kg, item.weight_kg)
+        # Use the cache populated during the validation pre-pass.
+        permitted = permitted_cache[row.item_id]
 
         inflated_length = item.length_cm + tolerance_gap
         inflated_width = item.width_cm + tolerance_gap

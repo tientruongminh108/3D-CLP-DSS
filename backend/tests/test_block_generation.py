@@ -113,7 +113,47 @@ def test_large_quantity_identical_consolidation():
     assert len(set(all_box_ids)) == 69, "No box ID should be duplicated or dropped"
 
     # 3. Block quality: multi-box contents and high fill ratio
-    assert len(blocks) >= 15, f"Expected at least 15 blocks from 69 boxes, got {len(blocks)}"
+    assert len(blocks) >= 8, f"Expected at least 8 multi-box blocks from 69 boxes, got {len(blocks)}"
     for blk in blocks:
         assert len(blk.contents) >= 2, "Blocks must contain at least 2 boxes"
         assert blk.fill_ratio >= 0.98, f"Fill ratio should be ~1.0 for identical boxes, got {blk.fill_ratio}"
+
+
+def test_fits_bounds_per_axis():
+    from app.solver.block_generation import _fits_bounds
+
+    c_l, c_w, c_h = 1200.0, 235.0, 270.0
+    per_axis_frac = [0.20, 0.50, 0.50]
+
+    # Y dimension = 100 cm fits within 0.50 cap (117.5 cm)
+    assert _fits_bounds(
+        [200.0, 100.0, 40.0], [200.0, 100.0, 40.0],
+        c_l, c_w, c_h, per_axis_frac,
+        [100.0, 50.0, 40.0], [100.0, 50.0, 40.0]
+    ) is True
+
+    # But with uniform 0.20 cap, Y cap would be 47.0 cm, so 100.0 cm fails
+    uniform_frac = [0.20, 0.20, 0.20]
+    assert _fits_bounds(
+        [200.0, 100.0, 40.0], [200.0, 100.0, 40.0],
+        c_l, c_w, c_h, uniform_frac,
+        [100.0, 50.0, 40.0], [100.0, 50.0, 40.0]
+    ) is False
+
+    # Backwards compatibility: passing a single float
+    assert _fits_bounds(
+        [200.0, 100.0, 40.0], [200.0, 100.0, 40.0],
+        c_l, c_w, c_h, 0.20,
+        [100.0, 50.0, 40.0], [100.0, 50.0, 40.0]
+    ) is False
+
+
+def test_relaxed_layer_merging():
+    """Verify that columns merge further along relaxed axes (e.g. Z axis up to 0.50) into multi-layer blocks."""
+    boxes = create_test_boxes(8, length=100, width=50, height=40)
+    blocks, leftover = build_blocks(boxes, 1200.0, 235.0, 270.0)
+
+    assert len(leftover) == 0
+    # At least one block has grown along the height (Z) axis to > 40 cm
+    assert any(b.height_cm > 40.0 for b in blocks)
+    assert sum(len(b.contents) for b in blocks) == 8

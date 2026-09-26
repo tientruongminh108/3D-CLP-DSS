@@ -1,6 +1,7 @@
 from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dc_replace
 from collections import defaultdict
+from functools import cached_property
 import math
 from app.config import get_settings
 from app.solver.parsing import Box
@@ -29,37 +30,28 @@ class Block:
             self.inflated_length, self.inflated_width, self.inflated_height
         )
 
-    @property
+    @cached_property
     def this_way_up(self) -> bool:
         """Block is This_Way_Up if any contained box requires it."""
-        if not hasattr(self, '_cached_this_way_up'):
-            self._cached_this_way_up = any(c.this_way_up for c in self.contents)
-        return self._cached_this_way_up
+        return any(c.this_way_up for c in self.contents)
 
-    @property
+    @cached_property
     def permitted_postures(self) -> List[Posture]:
         """Permitted postures per Section 4.2/5.1: 2 if This_Way_Up, 6 otherwise."""
-        if not hasattr(self, '_cached_permitted_postures'):
-            if self.this_way_up:
-                self._cached_permitted_postures = [Posture.LWH, Posture.WLH]
-            else:
-                self._cached_permitted_postures = list(Posture)
-        return self._cached_permitted_postures
+        if self.this_way_up:
+            return [Posture.LWH, Posture.WLH]
+        return list(Posture)
 
-    @property
+    @cached_property
     def stacking_group(self) -> int:
         """Most restrictive (smallest) stacking group among contents."""
-        if not hasattr(self, '_cached_stacking_group'):
-            self._cached_stacking_group = min(c.stacking_group for c in self.contents) if self.contents else 1
-        return self._cached_stacking_group
+        return min(c.stacking_group for c in self.contents) if self.contents else 1
 
-    @property
+    @cached_property
     def max_load_bearing_kg(self) -> Optional[float]:
         """Minimum load bearing capacity among contents."""
-        if not hasattr(self, '_cached_max_load_bearing_kg'):
-            limits = [c.max_load_bearing_kg for c in self.contents if c.max_load_bearing_kg is not None]
-            self._cached_max_load_bearing_kg = min(limits) if limits else None
-        return self._cached_max_load_bearing_kg
+        limits = [c.max_load_bearing_kg for c in self.contents if c.max_load_bearing_kg is not None]
+        return min(limits) if limits else None
 
     @property
     def fill_ratio(self) -> float:
@@ -80,11 +72,15 @@ def build_blocks(
 ) -> Tuple[List[Block], List[Box]]:
     settings = get_settings()
     min_fill = settings.MIN_BLOCK_FILL_RATIO
-    max_frac = settings.MAX_BLOCK_FRACTION
+    max_frac = [
+        settings.MAX_BLOCK_FRACTION_X,
+        settings.MAX_BLOCK_FRACTION_Y,
+        settings.MAX_BLOCK_FRACTION_Z,
+    ]
 
     groups = defaultdict(list)
     for box in boxes:
-        key = (box.length_cm, box.width_cm, box.height_cm, box.customer_sequence)
+        key = (box.item_id, box.length_cm, box.width_cm, box.height_cm, box.customer_sequence)
         groups[key].append(box)
 
     simple_blocks = []
@@ -95,7 +91,7 @@ def build_blocks(
             leftover.extend(group)
             continue
 
-        length, width, height, cust_seq = key
+        item_id, length, width, height, cust_seq = key
         single_vol = length * width * height
         box_weight = group[0].weight_kg
         stacking_group = group[0].stacking_group
@@ -149,15 +145,8 @@ def build_blocks(
         max_frac,
     )
 
-    all_blocks = similar_blocks
-
-    final_blocks = []
-    final_leftover = leftover
-
-    for block in all_blocks:
-        final_blocks.append(block)
-
-    return final_blocks, final_leftover
+    # Fix #11: remove the dead no-op copy loop that was here.
+    return list(similar_blocks), leftover
 
 
 def _build_simple_blocks(
@@ -179,8 +168,10 @@ def _build_simple_blocks(
     container_width: float,
     container_height: float,
     min_fill: float,
-    max_frac: float,
+    max_frac: List[float],
 ) -> Tuple[List[Block], List[Box]]:
+    if isinstance(max_frac, (int, float)):
+        max_frac = [float(max_frac), float(max_frac), float(max_frac)]
     blocks = []
     leftover = []
     remaining = list(boxes)
@@ -189,164 +180,102 @@ def _build_simple_blocks(
     axis_inflated = [inflated_l, inflated_w, inflated_h]
     block_counter = 0
 
+    max_nx = max(1, int(container_length // inflated_l))
+    max_ny = max(1, int(container_width // inflated_w))
+    max_nz = max(1, int(container_height // inflated_h))
+
     while len(remaining) >= 2:
-        best_count = 0
-        best_axis = -1
+        valid_configs = []
+        for nx in range(1, max_nx + 1):
+            for ny in range(1, max_ny + 1):
+                for nz in range(1, max_nz + 1):
+                    k = nx * ny * nz
+                    if k < 2 or k > len(remaining):
+                        continue
+                    dims = [length * nx, width * ny, height * nz]
+                    infl = [inflated_l * nx, inflated_w * ny, inflated_h * nz]
+                    if _fits_bounds(
+                        dims,
+                        infl,
+                        container_length,
+                        container_width,
+                        container_height,
+                        max_frac,
+                        axis_lengths,
+                        axis_inflated,
+                    ):
+                        cubicity = min(dims) / max(dims)
+                        footprint_aspect = min(dims[0], dims[1]) / max(dims[0], dims[1])
+                        valid_configs.append((k, nx, ny, nz, dims, infl, cubicity, footprint_aspect))
 
-        for axis in range(3):
-            other_axes = [i for i in range(3) if i != axis]
-
-            for count in range(2, len(remaining) + 1):
-                dims = [0.0, 0.0, 0.0]
-                dims[axis] = axis_lengths[axis] * count
-                dims[other_axes[0]] = axis_lengths[other_axes[0]]
-                dims[other_axes[1]] = axis_lengths[other_axes[1]]
-
-                inflated_dims = [0.0, 0.0, 0.0]
-                inflated_dims[axis] = axis_inflated[axis] * count
-                inflated_dims[other_axes[0]] = axis_inflated[other_axes[0]]
-                inflated_dims[other_axes[1]] = axis_inflated[other_axes[1]]
-
-                if not _fits_bounds(
-                    dims,
-                    inflated_dims,
-                    container_length,
-                    container_width,
-                    container_height,
-                    max_frac,
-                    axis_lengths,
-                    axis_inflated,
-                    stacking_axis=axis,
-                ):
-                    break
-
-                if count > best_count:
-                    best_count = count
-                    best_axis = axis
-
-        if best_count < 2:
+        if not valid_configs:
             break
 
-        block_counter += 1
-        chosen_boxes = remaining[:best_count]
-        remaining = remaining[best_count:]
+        def rank_key(cfg):
+            k, nx, ny, nz, dims, infl, cubicity, footprint_aspect = cfg
+            rem = len(remaining) % k
+            num_axes_gt_1 = (1 if nx > 1 else 0) + (1 if ny > 1 else 0) + (1 if nz > 1 else 0)
+            total_absorbed = len(remaining) - rem
+            # Standard 3D-CLP ranking:
+            # 1. Maximize total boxes absorbed in this iteration (minimizes leftovers)
+            # 2. Prefer cubicity (most cubic / square block - "vuông vức nhất có thể")
+            # 3. Prefer 2D footprint squareness (Dx ≈ Dy)
+            # 4. Prefer 3D compactness (num_axes_gt_1)
+            # 5. Prefer vertical stacking (nz) over floor sprawl
+            # 6. Prefer larger block size k
+            return (total_absorbed, round(cubicity, 2), round(footprint_aspect, 2), num_axes_gt_1, nz, k)
 
-        other_axes_for_best = [i for i in range(3) if i != best_axis]
-        dims = [0.0, 0.0, 0.0]
-        dims[best_axis] = axis_lengths[best_axis] * best_count
-        dims[other_axes_for_best[0]] = axis_lengths[other_axes_for_best[0]]
-        dims[other_axes_for_best[1]] = axis_lengths[other_axes_for_best[1]]
+        valid_configs.sort(key=rank_key, reverse=True)
+        best_k, best_nx, best_ny, best_nz, best_dims, best_infl, _, _ = valid_configs[0]
 
-        inflated_dims = [0.0, 0.0, 0.0]
-        inflated_dims[best_axis] = axis_inflated[best_axis] * best_count
-        inflated_dims[other_axes_for_best[0]] = axis_inflated[other_axes_for_best[0]]
-        inflated_dims[other_axes_for_best[1]] = axis_inflated[other_axes_for_best[1]]
+        num_blocks = len(remaining) // best_k
+        for _ in range(num_blocks):
+            block_counter += 1
+            chosen_boxes = remaining[:best_k]
+            remaining = remaining[best_k:]
 
-        # Set relative positions for contents
-        contents = []
-        for i in range(best_count):
-            box = chosen_boxes[i]
-            rel_pos = [0.0, 0.0, 0.0]
-            rel_pos[best_axis] = axis_inflated[best_axis] * i
-            content_box = Box(
-                box_id=box.box_id,
-                item_id=box.item_id,
-                po_no=box.po_no,
-                customer_code=box.customer_code,
-                customer_sequence=box.customer_sequence,
-                length_cm=box.length_cm,
-                width_cm=box.width_cm,
-                height_cm=box.height_cm,
-                weight_kg=box.weight_kg,
-                this_way_up=box.this_way_up,
-                stacking_group=box.stacking_group,
-                max_load_bearing_kg=box.max_load_bearing_kg,
-                permitted_postures=box.permitted_postures,
-                inflated_length=box.inflated_length,
-                inflated_width=box.inflated_width,
-                inflated_height=box.inflated_height,
-                rel_x=rel_pos[0],
-                rel_y=rel_pos[1],
-                rel_z=rel_pos[2],
-            )
-            contents.append(content_box)
+            contents = []
+            box_idx = 0
+            for ix in range(best_nx):
+                for iy in range(best_ny):
+                    for iz in range(best_nz):
+                        b = chosen_boxes[box_idx]
+                        box_idx += 1
+                        contents.append(Box(
+                            box_id=b.box_id,
+                            item_id=b.item_id,
+                            po_no=b.po_no,
+                            customer_code=b.customer_code,
+                            customer_sequence=b.customer_sequence,
+                            length_cm=b.length_cm,
+                            width_cm=b.width_cm,
+                            height_cm=b.height_cm,
+                            weight_kg=b.weight_kg,
+                            this_way_up=b.this_way_up,
+                            stacking_group=b.stacking_group,
+                            max_load_bearing_kg=b.max_load_bearing_kg,
+                            permitted_postures=b.permitted_postures,
+                            inflated_length=b.inflated_length,
+                            inflated_width=b.inflated_width,
+                            inflated_height=b.inflated_height,
+                            rel_x=inflated_l * ix,
+                            rel_y=inflated_w * iy,
+                            rel_z=inflated_h * iz,
+                        ))
 
-        block = Block(
-            block_id=f"B_{cust_seq}_{length}x{width}x{height}_axis{best_axis}_{best_count}_{block_counter}",
-            boxes=chosen_boxes,
-            length_cm=dims[0],
-            width_cm=dims[1],
-            height_cm=dims[2],
-            weight_kg=box_weight * best_count,
-            customer_sequence=cust_seq,
-            inflated_length=inflated_dims[0],
-            inflated_width=inflated_dims[1],
-            inflated_height=inflated_dims[2],
-            contents=contents,
-        )
-        blocks.append(block)
-
-    # BUG-10 fix: the greedy max-count loop may leave exactly 2 items that could
-    # form a valid 2-block.  Check axis-0 (length direction) as the primary fallback.
-    if len(remaining) == 2:
-        for axis in range(3):
-            other_axes = [i for i in range(3) if i != axis]
-            fb_dims = [0.0, 0.0, 0.0]
-            fb_dims[axis] = axis_lengths[axis] * 2
-            fb_dims[other_axes[0]] = axis_lengths[other_axes[0]]
-            fb_dims[other_axes[1]] = axis_lengths[other_axes[1]]
-
-            fb_inflated = [0.0, 0.0, 0.0]
-            fb_inflated[axis] = axis_inflated[axis] * 2
-            fb_inflated[other_axes[0]] = axis_inflated[other_axes[0]]
-            fb_inflated[other_axes[1]] = axis_inflated[other_axes[1]]
-
-            if _fits_bounds(
-                fb_dims, fb_inflated,
-                container_length, container_width, container_height,
-                max_frac, axis_lengths, axis_inflated, stacking_axis=axis,
-            ):
-                block_counter += 1
-                contents = []
-                for k, box in enumerate(remaining):
-                    rel_pos = [0.0, 0.0, 0.0]
-                    rel_pos[axis] = axis_inflated[axis] * k
-                    contents.append(Box(
-                        box_id=box.box_id,
-                        item_id=box.item_id,
-                        po_no=box.po_no,
-                        customer_code=box.customer_code,
-                        customer_sequence=box.customer_sequence,
-                        length_cm=box.length_cm,
-                        width_cm=box.width_cm,
-                        height_cm=box.height_cm,
-                        weight_kg=box.weight_kg,
-                        this_way_up=box.this_way_up,
-                        stacking_group=box.stacking_group,
-                        max_load_bearing_kg=box.max_load_bearing_kg,
-                        permitted_postures=box.permitted_postures,
-                        inflated_length=box.inflated_length,
-                        inflated_width=box.inflated_width,
-                        inflated_height=box.inflated_height,
-                        rel_x=rel_pos[0],
-                        rel_y=rel_pos[1],
-                        rel_z=rel_pos[2],
-                    ))
-                blocks.append(Block(
-                    block_id=f"B_{cust_seq}_{length}x{width}x{height}_axis{axis}_2_{block_counter}",
-                    boxes=list(remaining),
-                    length_cm=fb_dims[0],
-                    width_cm=fb_dims[1],
-                    height_cm=fb_dims[2],
-                    weight_kg=box_weight * 2,
-                    customer_sequence=cust_seq,
-                    inflated_length=fb_inflated[0],
-                    inflated_width=fb_inflated[1],
-                    inflated_height=fb_inflated[2],
-                    contents=contents,
-                ))
-                remaining = []
-                break
+            blocks.append(Block(
+                block_id=f"B_{cust_seq}_{best_dims[0]:.1f}x{best_dims[1]:.1f}x{best_dims[2]:.1f}_3D_{best_nx}x{best_ny}x{best_nz}_{block_counter}",
+                boxes=chosen_boxes,
+                length_cm=best_dims[0],
+                width_cm=best_dims[1],
+                height_cm=best_dims[2],
+                weight_kg=box_weight * best_k,
+                customer_sequence=cust_seq,
+                inflated_length=best_infl[0],
+                inflated_width=best_infl[1],
+                inflated_height=best_infl[2],
+                contents=contents,
+            ))
 
     leftover.extend(remaining)
     return blocks, leftover
@@ -358,7 +287,7 @@ def _fits_bounds(
     container_length: float,
     container_width: float,
     container_height: float,
-    max_frac: float,
+    max_frac: List[float],
     native_dims: List[float],
     native_inflated: List[float],
     stacking_axis: int = None,
@@ -371,6 +300,9 @@ def _fits_bounds(
     own native size:
     effective_cap = max(container_extent * max_block_fraction, native_extent)
     """
+    if isinstance(max_frac, (int, float)):
+        max_frac = [float(max_frac), float(max_frac), float(max_frac)]
+
     container_dims = [container_length, container_width, container_height]
 
     for i in range(3):
@@ -379,7 +311,7 @@ def _fits_bounds(
             return False
 
         native = native_inflated[i] if native_inflated else dims[i]
-        effective_cap = max(container_dims[i] * max_frac, native)
+        effective_cap = max(container_dims[i] * max_frac[i], native)
         if inflated_dims[i] > effective_cap:
             return False
 
@@ -392,11 +324,15 @@ def _combine_identical_blocks(
     container_width: float,
     container_height: float,
     min_fill: float,
-    max_frac: float,
+    max_frac: List[float],
 ) -> List[Block]:
+    if isinstance(max_frac, (int, float)):
+        max_frac = [float(max_frac), float(max_frac), float(max_frac)]
     groups = defaultdict(list)
     for block in blocks:
+        item_id = block.contents[0].item_id if block.contents else ""
         key = (
+            item_id,
             block.length_cm,
             block.width_cm,
             block.height_cm,
@@ -410,7 +346,7 @@ def _combine_identical_blocks(
             combined.extend(group)
             continue
 
-        cust_seq = key[3]
+        cust_seq = key[4]
         current_blocks = list(group)
         changed = True
         pass_num = 0
@@ -474,23 +410,8 @@ def _combine_identical_blocks(
 
                             merged_contents = list(b1.contents)
                             for c in b2.contents:
-                                merged_contents.append(Box(
-                                    box_id=c.box_id,
-                                    item_id=c.item_id,
-                                    po_no=c.po_no,
-                                    customer_code=c.customer_code,
-                                    customer_sequence=c.customer_sequence,
-                                    length_cm=c.length_cm,
-                                    width_cm=c.width_cm,
-                                    height_cm=c.height_cm,
-                                    weight_kg=c.weight_kg,
-                                    this_way_up=c.this_way_up,
-                                    stacking_group=c.stacking_group,
-                                    max_load_bearing_kg=c.max_load_bearing_kg,
-                                    permitted_postures=c.permitted_postures,
-                                    inflated_length=c.inflated_length,
-                                    inflated_width=c.inflated_width,
-                                    inflated_height=c.inflated_height,
+                                merged_contents.append(dc_replace(
+                                    c,
                                     rel_x=c.rel_x + offset[0],
                                     rel_y=c.rel_y + offset[1],
                                     rel_z=c.rel_z + offset[2],
@@ -536,8 +457,10 @@ def _combine_similar_blocks(
     container_width: float,
     container_height: float,
     min_fill: float,
-    max_frac: float,
+    max_frac: List[float],
 ) -> List[Block]:
+    if isinstance(max_frac, (int, float)):
+        max_frac = [float(max_frac), float(max_frac), float(max_frac)]
     tolerance = 0.1
 
     def dims_similar(b1: Block, b2: Block) -> bool:
@@ -628,23 +551,8 @@ def _combine_similar_blocks(
 
                                 merged_contents = list(b1.contents)
                                 for c in b2.contents:
-                                    merged_contents.append(Box(
-                                        box_id=c.box_id,
-                                        item_id=c.item_id,
-                                        po_no=c.po_no,
-                                        customer_code=c.customer_code,
-                                        customer_sequence=c.customer_sequence,
-                                        length_cm=c.length_cm,
-                                        width_cm=c.width_cm,
-                                        height_cm=c.height_cm,
-                                        weight_kg=c.weight_kg,
-                                        this_way_up=c.this_way_up,
-                                        stacking_group=c.stacking_group,
-                                        max_load_bearing_kg=c.max_load_bearing_kg,
-                                        permitted_postures=c.permitted_postures,
-                                        inflated_length=c.inflated_length,
-                                        inflated_width=c.inflated_width,
-                                        inflated_height=c.inflated_height,
+                                    merged_contents.append(dc_replace(
+                                        c,
                                         rel_x=c.rel_x + offset[0],
                                         rel_y=c.rel_y + offset[1],
                                         rel_z=c.rel_z + offset[2],

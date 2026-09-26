@@ -31,8 +31,10 @@ class Settings(BaseSettings):
 
     # Block Generation
     MIN_BLOCK_FILL_RATIO: float = 0.75
-    MAX_BLOCK_FRACTION: float = 0.20  # GA search cap — keep small
-    MAX_BLOCK_FRACTION_REPORT: float = 0.40  # Report/visual cap (>= search cap)
+    MAX_BLOCK_FRACTION_X: float = 0.20  # GA search cap — length/X axis (unchanged)
+    MAX_BLOCK_FRACTION_Y: float = 0.50  # GA search cap — width/Y axis (allows 2-3 carton layers)
+    MAX_BLOCK_FRACTION_Z: float = 0.50  # GA search cap — height/Z axis (allows 2-3 carton tiers)
+    MAX_BLOCK_FRACTION_REPORT: float = 0.50  # Report/visual cap (>= search cap)
     SIMILAR_SIZE_TOLERANCE: float = 0.1
 
     # Placement Strategy

@@ -157,15 +157,11 @@ def check_all_constraints(
     if not check_orientation(candidate.box, candidate.posture):
         return False, "orientation"
 
-    if not check_container_bounds(
-        BoundingBox.from_position_and_dims(candidate.position, candidate.dims),
-        container_dims,
-    ):
-        return False, "container_bounds"
+    # Construct the bounding box once and reuse it for all subsequent checks.
+    candidate_bbox = BoundingBox.from_position_and_dims(candidate.position, candidate.dims)
 
-    candidate_bbox = BoundingBox.from_position_and_dims(
-        candidate.position, candidate.dims
-    )
+    if not check_container_bounds(candidate_bbox, container_dims):
+        return False, "container_bounds"
 
     if not check_non_overlap(candidate_bbox, placed_boxes):
         return False, "non_overlap"

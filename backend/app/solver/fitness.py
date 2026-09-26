@@ -1,6 +1,7 @@
 from typing import List, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
+from itertools import chain
 from app.config import get_settings
 from app.solver.geometry import BoundingBox, Position, calculate_cog, check_cog_balance, FLOOR_EPSILON
 from app.solver.parsing import Box
@@ -85,18 +86,35 @@ def calculate_fitness(
     #           - cog_weight * (B1_norm + B2_norm + B3_norm)
     #           - INFEASIBLE_PENALTY if B4==0 or B5==0
     
+    # -----------------------------------------------------------------------
+    # Unplaced penalty: weight-proportional so the GA is penalized more for
+    # leaving heavy boxes unplaced than for leaving flat/light ones behind.
+    # Normalise by the maximum per-box weight so the penalty stays on a stable
+    # scale regardless of shipment profile.
+    # -----------------------------------------------------------------------
+    max_box_weight = max(
+        (getattr(b, 'weight_kg', 0.0)
+         for b in chain(placed_data, (u for u, _ in unplaced))),
+        default=1.0,
+    ) or 1.0
+
+    unplaced_weight_penalty = sum(
+        settings.UNPLACED_RANK_WEIGHT * (1.0 + getattr(u, 'weight_kg', 0.0) / max_box_weight)
+        for u, _ in unplaced
+    )
+
     fill_term = fill_rate - settings.FITNESS_COG_PENALTY_WEIGHT * (B1_norm + B2_norm + B3_norm)
-    
+
     # INFEASIBLE_PENALTY = -(total_box_count * UNPLACED_RANK_WEIGHT) - 1000
     total_box_count = len(placed_data) + unplaced_count
     INFEASIBLE_PENALTY = -(total_box_count * settings.UNPLACED_RANK_WEIGHT) - 1000
-    
+
     # B4 = 1 if all load-bearing checks pass, else 0
     # B5 = 1 if all support/stability checks pass, else 0
     feasible = (load_bearing_violations == 0 and stability_violations == 0)
-    
+
     fitness = (
-        -(unplaced_count * settings.UNPLACED_RANK_WEIGHT)
+        -unplaced_weight_penalty
         + fill_term
         + (0 if feasible else INFEASIBLE_PENALTY)
     )
