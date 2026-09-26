@@ -17,6 +17,7 @@ def run_simulated_annealing(
     best_individual: "Individual",
     best_fitness: float,
     is_lcl: bool,
+    max_weight: float,          # BUG-09 fix: was using volume*0.001 magic number
     auto_tune: bool = False,
 ) -> Tuple["Individual", float]:
     """
@@ -35,7 +36,8 @@ def run_simulated_annealing(
         deltas = []
         for _ in range(50):
             neighbor = generate_neighbor(current, boxes_sorted)
-            evaluate_individual(neighbor, boxes_sorted, container_dims, container_dims.length * container_dims.width * container_dims.height * 0.001, is_lcl)
+            # BUG-09 fix: use the real max_weight, not a volume-fraction proxy
+            evaluate_individual(neighbor, boxes_sorted, container_dims, max_weight, is_lcl)
             delta = abs(neighbor.fitness_result.fitness - current_fitness)
             deltas.append(delta)
         if deltas:
@@ -55,7 +57,8 @@ def run_simulated_annealing(
         steps += 1
         neighbor = generate_neighbor(current, boxes_sorted)
         from app.solver.ga import evaluate_individual
-        evaluate_individual(neighbor, boxes_sorted, container_dims, container_dims.length * container_dims.width * container_dims.height * 0.001, is_lcl)
+        # BUG-09 fix: use the real max_weight, not a volume-fraction proxy
+        evaluate_individual(neighbor, boxes_sorted, container_dims, max_weight, is_lcl)
 
         delta = neighbor.fitness_result.fitness - current_fitness
 
@@ -72,15 +75,43 @@ def run_simulated_annealing(
 
 
 def generate_neighbor(individual: "Individual", units: List[Box]) -> "Individual":
-    """Stochastic single-posture perturbation (paper Section 2.4.3(4))."""
+    """Change 5: Multi-gene SA perturbation.
+
+    50% probability: single posture flip (original behavior).
+    30% probability: flip 2-3 random posture genes.
+    20% probability: swap postures of two randomly chosen items.
+    """
+    import random as _random
     neighbor = copy.deepcopy(individual)
 
     if not neighbor.chromosome:
         return neighbor
 
-    idx = random.randrange(len(neighbor.chromosome))
-    if idx < len(units) and units[idx].permitted_postures:
-        neighbor.chromosome[idx] = random.randrange(len(units[idx].permitted_postures))
+    n = len(neighbor.chromosome)
+    roll = _random.random()
+
+    if roll < 0.50:
+        # Original: single-gene flip
+        idx = _random.randrange(n)
+        if idx < len(units) and units[idx].permitted_postures:
+            neighbor.chromosome[idx] = _random.randrange(len(units[idx].permitted_postures))
+
+    elif roll < 0.80:
+        # Multi-gene: flip 2 or 3 random genes
+        num_flips = _random.choice([2, 3])
+        indices = _random.sample(range(n), min(num_flips, n))
+        for idx in indices:
+            if idx < len(units) and units[idx].permitted_postures:
+                neighbor.chromosome[idx] = _random.randrange(len(units[idx].permitted_postures))
+
+    else:
+        # Swap: exchange posture genes of two randomly chosen items
+        if n >= 2:
+            i, j = _random.sample(range(n), 2)
+            neighbor.chromosome[i], neighbor.chromosome[j] = (
+                neighbor.chromosome[j],
+                neighbor.chromosome[i],
+            )
 
     return neighbor
 

@@ -6,6 +6,7 @@ from app.solver.geometry import (
     Dimensions,
     Position,
     Posture,
+    FLOOR_EPSILON,
     check_support_ratio,
     check_load_bearing,
     check_cog_balance,
@@ -72,15 +73,17 @@ def check_container_bounds(
 def check_stackability(
     candidate: BoundingBox,
     placed_boxes: List[BoundingBox],
-    candidate_box: Box,
-    placed_boxes_data: List[Box],
+    candidate_box,
+    placed_boxes_data: List,
 ) -> bool:
     settings = get_settings()
 
     if not check_support_ratio(candidate, placed_boxes, settings.SUPPORT_RATIO):
         return False
 
-    if candidate.min_z > 0:
+    # BUG-03 fix: use FLOOR_EPSILON so boxes that drifted to z ≈ 0 after
+    # compaction are still correctly treated as floor-level items.
+    if candidate.min_z > FLOOR_EPSILON:
         support_indices = []
         support_weights = []
         support_limits = []
@@ -101,12 +104,17 @@ def check_stackability(
 
         # Pass the BoundingBox objects for support check
         support_bboxes = [placed_boxes[i] for i in support_indices]
+        # BUG-02 fix: pass the full placed lists so check_load_bearing can
+        # compute cumulative load already resting on each support box.
+        all_weights = [placed_boxes_data[i].weight_kg for i in range(len(placed_boxes))]
         if not check_load_bearing(
             candidate,
             support_bboxes,
             candidate_box.weight_kg,
             support_weights,
             support_limits,
+            all_placed_boxes=placed_boxes,
+            all_placed_weights=all_weights,
         ):
             return False
 
@@ -116,15 +124,23 @@ def check_stackability(
 def check_lifo(
     candidate: BoundingBox,
     placed_boxes: List[BoundingBox],
-    placed_boxes_data: List[Box],
+    placed_boxes_data: List,
     candidate_sequence: int,
 ) -> bool:
+    """BUG-07 fix: the original condition `candidate.max_x > placed.min_x` fires
+    for any pair that overlaps in X at all, which is far too weak.  The correct
+    LIFO invariant is: a later-sequence box's *front face* (min_x, closer to door)
+    must not intrude past an earlier-sequence box's *back face* (max_x).
+    i.e. candidate.min_x < placed.max_x means the candidate box starts before
+    the earlier-customer box ends — it is blocking the unload path.
+    """
     for i, placed in enumerate(placed_boxes):
         placed_data = placed_boxes_data[i]
         if placed_data.customer_sequence < candidate_sequence:
-            # Earlier customer (smaller sequence) must not be blocked
-            # Violation: candidate (later) is deeper AND overlaps on Y and Z
-            if candidate.max_x > placed.min_x and candidate.overlaps_yz(placed):
+            # Earlier customer (smaller sequence) must not be blocked.
+            # Violation: the candidate's front face is closer to the door
+            # than the earlier box's back face AND they share a Y-Z section.
+            if candidate.min_x < placed.max_x and candidate.overlaps_yz(placed):
                 return False
     return True
 

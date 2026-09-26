@@ -1,7 +1,8 @@
 from typing import List, Tuple
 from dataclasses import dataclass
+from collections import defaultdict
 from app.config import get_settings
-from app.solver.geometry import BoundingBox, Position, calculate_cog, check_cog_balance
+from app.solver.geometry import BoundingBox, Position, calculate_cog, check_cog_balance, FLOOR_EPSILON
 from app.solver.parsing import Box
 from app.solver.block_generation import Block
 
@@ -57,12 +58,22 @@ def calculate_fitness(
     load_bearing_violations = 0
     stability_violations = 0
 
+    # BUG-15 fix: build a z-level index so supporters are looked up in O(1)
+    # instead of scanning all N boxes for each of N candidates — cuts the
+    # per-evaluation cost from O(N²) to O(N) in the common case.
+    z_to_supporters = defaultdict(list)
+    for j, other in enumerate(placed_bboxes):
+        # Key on rounded max_z to handle floating-point near-equality
+        z_to_supporters[round(other.max_z, 6)].append((j, other))
+
     for i, bbox in enumerate(placed_bboxes):
-        if bbox.min_z > 0:
-            # Stability check
-            support_area = 0
+        # BUG-03 consistency: use FLOOR_EPSILON so compaction-shifted boxes
+        # at z ≈ 0 are still treated as floor items and skipped.
+        if bbox.min_z > FLOOR_EPSILON:
+            # Stability check using the z-level index
+            support_area = 0.0
             footprint = (bbox.max_x - bbox.min_x) * (bbox.max_y - bbox.min_y)
-            for j, other in enumerate(placed_bboxes):
+            for j, other in z_to_supporters.get(round(bbox.min_z, 6), []):
                 if other.supports(bbox):
                     support_area += other.contact_area(bbox)
             if footprint > 0 and (support_area / footprint) < settings.SUPPORT_RATIO:

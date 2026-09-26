@@ -3,6 +3,10 @@ from typing import List, Tuple, Optional
 from enum import Enum
 import math
 
+# BUG-03 fix: single authoritative epsilon for floor-level detection.
+# Using == 0.0 breaks after compaction shifts boxes by tiny floating-point amounts.
+FLOOR_EPSILON = 1e-4
+
 
 class Posture(int, Enum):
     LWH = 1
@@ -157,12 +161,18 @@ def generate_extreme_points(
     raw_points.add(ExtremePoint(0, 0, 0))
 
     for box in placed_boxes:
-        # Face beyond box along X (right-hand side in length direction)
+        # Original 3 EPs: face projections along each axis
         raw_points.add(ExtremePoint(box.max_x, box.min_y, box.min_z))
-        # Face beyond box along Y (right-hand side in width direction)
         raw_points.add(ExtremePoint(box.min_x, box.max_y, box.min_z))
-        # Top face of box — anchor point for stacking
         raw_points.add(ExtremePoint(box.min_x, box.min_y, box.max_z))
+
+        # Change 1: 3 additional composite EPs for tighter packing
+        # Diagonal floor corner: next to box in both X and Y
+        raw_points.add(ExtremePoint(box.max_x, box.max_y, box.min_z))
+        # Top-right corner along X+Z: stacking starting at box's X-face
+        raw_points.add(ExtremePoint(box.max_x, box.min_y, box.max_z))
+        # Top-right corner along Y+Z: stacking starting at box's Y-face
+        raw_points.add(ExtremePoint(box.min_x, box.max_y, box.max_z))
 
     valid_points = []
     for p in raw_points:
@@ -196,7 +206,9 @@ def calculate_contact_ratio(
     placed_boxes: List[BoundingBox],
     container_dims: Dimensions,
 ) -> float:
-    if candidate_box.min_z == 0:
+    # BUG-03 fix: use FLOOR_EPSILON instead of == 0 so compaction-shifted
+    # boxes at z ≈ 0 are still treated as floor items.
+    if candidate_box.min_z <= FLOOR_EPSILON:
         return 1.0
 
     contact_area = 0.0
@@ -277,7 +289,9 @@ def check_support_ratio(
     placed_boxes: List[BoundingBox],
     min_support_ratio: float,
 ) -> bool:
-    if candidate_box.min_z == 0:
+    # BUG-03 fix: use FLOOR_EPSILON so a box at z ≈ 0 (e.g. after compaction
+    # floating-point drift) is correctly treated as a floor item.
+    if candidate_box.min_z <= FLOOR_EPSILON:
         return True
 
     contact_area = 0.0
@@ -302,13 +316,41 @@ def check_load_bearing(
     candidate_weight: float,
     placed_weights: List[float],
     placed_load_limits: List[Optional[float]],
+    all_placed_boxes: Optional[List[BoundingBox]] = None,
+    all_placed_weights: Optional[List[float]] = None,
 ) -> bool:
+    """BUG-02 fix: check cumulative load already resting on each support box,
+    not just the support box's own self-weight.  The old code computed
+    `placed_weights[i] + candidate_weight` where placed_weights[i] was the
+    support box's own mass — completely ignoring boxes already stacked on it.
+
+    We pre-build a load_on[j] table (weight already above box j) using the
+    full placed list, then add the candidate weight before comparing to limit.
+    This correctly catches violations in multi-level stacks.
+    """
+    ref_boxes = all_placed_boxes if all_placed_boxes is not None else placed_boxes
+    ref_weights = all_placed_weights if all_placed_weights is not None else placed_weights
+
+    n_ref = len(ref_boxes)
+    # One-pass: accumulate the weight of every box that directly rests on each
+    # reference box.  O(N²) but N is bounded per placement and called once.
+    load_on = [0.0] * n_ref
+    for i in range(n_ref):
+        for j in range(n_ref):
+            if i != j and ref_boxes[j].supports(ref_boxes[i]):
+                load_on[j] += ref_weights[i]
+
     for i, box in enumerate(placed_boxes):
         if box.supports(candidate_box):
             limit = placed_load_limits[i]
             if limit is not None:
-                supported_weight = placed_weights[i] + candidate_weight
-                if supported_weight > limit:
+                # Find this box in the reference list to get its accumulated load
+                try:
+                    ref_idx = ref_boxes.index(box)
+                    already_loaded = load_on[ref_idx]
+                except ValueError:
+                    already_loaded = 0.0
+                if already_loaded + candidate_weight > limit:
                     return False
     return True
 
@@ -335,6 +377,9 @@ def check_cog_balance(
     )
 
 
+_PROJ_EPS = 1e-9  # closed-interval tolerance for projection containment tests
+
+
 def project_point_down(
     point: ExtremePoint,
     placed_boxes: List[BoundingBox],
@@ -344,16 +389,22 @@ def project_point_down(
     Project a dangling extreme point down to the highest supporting surface below it.
     Per Section 5.2.3: if point doesn't have solid support directly beneath it,
     project it down (decreasing z) until it lands on a box top face or container floor.
+
+    BUG-05 fix: use closed ±epsilon intervals instead of the original half-open
+    [min, max) intervals.  EPs generated at box face boundaries (e.g. x == box.max_x)
+    were not matched by the old strict-less-than test and fell incorrectly to z=0.
     """
     x, y, z = point.x, point.y, point.z
-    if z <= 1e-6:
+    if z <= FLOOR_EPSILON:
         return point
 
     candidate_z = 0.0
     for box in placed_boxes:
-        if box.min_x <= x < box.max_x and box.min_y <= y < box.max_y:
+        # BUG-05: closed interval — a point exactly on the box edge is included
+        if (box.min_x - _PROJ_EPS <= x <= box.max_x + _PROJ_EPS
+                and box.min_y - _PROJ_EPS <= y <= box.max_y + _PROJ_EPS):
             if abs(box.max_z - z) < 1e-6:
-                return point
+                return point  # already sitting on this box top
             if box.max_z < z and box.max_z > candidate_z:
                 candidate_z = box.max_z
 

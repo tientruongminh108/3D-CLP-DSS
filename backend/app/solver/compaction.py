@@ -3,12 +3,13 @@ import copy
 from app.solver.geometry import (
     Dimensions,
     BoundingBox,
+    ExtremePoint,
     Posture,
     generate_extreme_points,
     sort_extreme_points,
 )
 from app.solver.fitness import calculate_fitness, FitnessResult
-from app.solver.placement import find_best_placement
+from app.solver.placement import find_best_placement, _add_box_extreme_points
 
 
 def compact_x_rear(
@@ -48,11 +49,14 @@ def compact_x_rear(
                 if b_j.min_x < limit_x:
                     limit_x = b_j.min_x
 
-            # LCL correctness: earlier customer must not be placed deeper than later customer cargo
+            # LCL correctness: box i (later customer) must not be slid past
+            # an earlier-customer box j (lower sequence number).
+            # BUG-04 fix: was `cust_j > cust_i` which is backwards — it was
+            # limiting slides past *later* customers instead of *earlier* ones.
             if is_lcl:
                 cust_i = getattr(placed_data[i], 'customer_sequence', 0)
                 cust_j = getattr(placed_data[j], 'customer_sequence', 0)
-                if cust_j > cust_i and b_j.min_x < limit_x:
+                if cust_j < cust_i and b_j.min_x < limit_x:
                     limit_x = b_j.min_x
 
         if limit_x > b_i.max_x + 1e-6:
@@ -137,57 +141,85 @@ def rescan_and_insert(
     max_weight: float,
     is_lcl: bool = False,
 ) -> Tuple[List[BoundingBox], List[Any], List[Posture], List[Tuple[Any, str]], float]:
-    """Pass 3: Re-scan for insertion opportunities.
+    """Pass 3: Re-scan for insertion opportunities (iterative).
 
     Regenerate extreme points from the compacted placements and attempt to place
     previously-unplaced items into newly-opened space, smallest-volume-first.
+    Repeats up to MAX_RESCAN_ITERS times; stops early if no new placements occur.
     """
     if not unplaced:
         return placed_bboxes, placed_data, placed_postures, unplaced, current_weight
 
-    extreme_points = generate_extreme_points(placed_bboxes, container_dims)
-    sorted_eps = sort_extreme_points(extreme_points)
+    MAX_RESCAN_ITERS = 3  # Change 2: iterate up to 3 passes
 
     last_customer_sequence = max(
         (getattr(u, 'customer_sequence', 0) for u in placed_data),
         default=0,
     )
 
-    # Sort unplaced items smallest volume first, then smallest weight
-    unplaced_sorted = sorted(
-        unplaced,
-        key=lambda pair: (_unit_volume(pair[0]), getattr(pair[0], 'weight_kg', 0.0)),
-    )
+    # BUG-14 fix: seed incremental EP state from the current placement so we can
+    # use _add_box_extreme_points instead of a full O(N) regeneration per insertion.
+    extreme_points = generate_extreme_points(placed_bboxes, container_dims)
+    sorted_eps = sort_extreme_points(extreme_points)
+    seen_points: set = set(extreme_points)
+    placement_count = len(placed_bboxes)  # seed counter so pruning interval is correct
 
-    remaining_unplaced: List[Tuple[Any, str]] = []
+    for _rescan_iter in range(MAX_RESCAN_ITERS):
+        if not unplaced:
+            break
 
-    for unit, old_reason in unplaced_sorted:
-        placement_res, reason = find_best_placement(
-            box=unit,
-            placed_boxes=placed_bboxes,
-            placed_boxes_data=placed_data,
-            container_dims=container_dims,
-            current_weight=current_weight,
-            max_weight=max_weight,
-            is_lcl=is_lcl,
-            extreme_points=sorted_eps,
-            last_customer_sequence=last_customer_sequence,
+        # Sort unplaced items smallest volume first, then smallest weight
+        unplaced_sorted = sorted(
+            unplaced,
+            key=lambda pair: (_unit_volume(pair[0]), getattr(pair[0], 'weight_kg', 0.0)),
         )
 
-        if placement_res:
-            new_bbox = BoundingBox.from_position_and_dims(placement_res.position, placement_res.dims)
-            placed_bboxes.append(new_bbox)
-            placed_data.append(unit)
-            placed_postures.append(placement_res.posture)
-            current_weight += unit.weight_kg
+        remaining_unplaced: List[Tuple[Any, str]] = []
+        placed_any = False
 
-            # Refresh extreme points with the newly placed box
-            extreme_points = generate_extreme_points(placed_bboxes, container_dims)
-            sorted_eps = sort_extreme_points(extreme_points)
-        else:
-            remaining_unplaced.append((unit, reason))
+        for unit, old_reason in unplaced_sorted:
+            placement_res, reason = find_best_placement(
+                box=unit,
+                placed_boxes=placed_bboxes,
+                placed_boxes_data=placed_data,
+                container_dims=container_dims,
+                current_weight=current_weight,
+                max_weight=max_weight,
+                is_lcl=is_lcl,
+                extreme_points=sorted_eps,
+                last_customer_sequence=last_customer_sequence,
+            )
 
-    return placed_bboxes, placed_data, placed_postures, remaining_unplaced, current_weight
+            if placement_res:
+                new_bbox = BoundingBox.from_position_and_dims(placement_res.position, placement_res.dims)
+                placed_bboxes.append(new_bbox)
+                placed_data.append(unit)
+                placed_postures.append(placement_res.posture)
+                current_weight += unit.weight_kg
+                placed_any = True
+
+                # BUG-14 fix: incremental EP update — O(1) amortized vs O(N) full regen
+                placement_count += 1
+                extreme_points = _add_box_extreme_points(
+                    new_bbox, extreme_points, seen_points, placed_bboxes,
+                    container_dims, placement_count,
+                )
+                sorted_eps = sort_extreme_points(extreme_points)
+            else:
+                remaining_unplaced.append((unit, reason))
+
+        unplaced = remaining_unplaced
+
+        # Stop early if no progress was made in this pass
+        if not placed_any:
+            break
+
+        # Refresh EP set at the start of each new rescan pass for consistency
+        extreme_points = generate_extreme_points(placed_bboxes, container_dims)
+        sorted_eps = sort_extreme_points(extreme_points)
+        seen_points = set(extreme_points)
+
+    return placed_bboxes, placed_data, placed_postures, unplaced, current_weight
 
 
 def run_compaction_pass(

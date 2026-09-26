@@ -146,6 +146,9 @@ def genetic_algorithm(
     sa_int = sa_interval or settings.SA_INTERVAL_GENERATIONS
     min_imp = min_improvement or settings.MIN_IMPROVEMENT
     patience = early_stop_patience or settings.EARLY_STOP_PATIENCE
+    # BUG-16 fix: hoist settings out of the per-generation loop
+    # (lru_cache means it's cheap, but saving the lookup inside hot loops adds up)
+    _min_imp = min_imp
 
     population = [create_individual(units) for _ in range(pop_size)]
 
@@ -179,8 +182,10 @@ def genetic_algorithm(
 
         # Simulated Annealing as local operator
         if gen % sa_int == 0:
+            # BUG-09 fix: pass the real max_weight instead of volume*0.001
             sa_individual, sa_fitness = run_simulated_annealing(
-                container_dims, units, best_individual, best_fitness, is_lcl
+                container_dims, units, best_individual, best_fitness, is_lcl,
+                max_weight=max_weight,
             )
             if sa_fitness > best_fitness + min_imp:
                 best_individual = sa_individual

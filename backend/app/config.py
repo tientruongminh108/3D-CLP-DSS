@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     MUTATION_RATE_MIN: float = 0.10
     CROSSOVER_PROBABILITY: float = 0.7
     MIN_IMPROVEMENT: float = 0.01
-    EARLY_STOP_PATIENCE: int = 40
+    EARLY_STOP_PATIENCE: int = 60
 
     # Simulated Annealing (embedded in GA)
     SA_INTERVAL_GENERATIONS: int = 5
@@ -29,25 +29,25 @@ class Settings(BaseSettings):
     SA_MIN_TEMP: float = 1.0
     SA_COOLING_RATE: float = 0.9
 
-    # Block Generation (Section 5.1)
-    MIN_BLOCK_FILL_RATIO: float = 0.98
-    MAX_BLOCK_FRACTION: float = 0.2  # Tuned for GA search (replaces 0.25 to improve fill rate)
-    MAX_BLOCK_FRACTION_REPORT: float = 0.4  # Strict for final report (>= search cap)
+    # Block Generation
+    MIN_BLOCK_FILL_RATIO: float = 0.75
+    MAX_BLOCK_FRACTION: float = 0.20  # GA search cap — keep small
+    MAX_BLOCK_FRACTION_REPORT: float = 0.40  # Report/visual cap (>= search cap)
     SIMILAR_SIZE_TOLERANCE: float = 0.1
 
-    # Placement Strategy (Section 5.2)
+    # Placement Strategy
     TOLERANCE_GAP_CM: float = 2.0
     SUPPORT_RATIO: float = 0.6
     CONTACT_RATIO_WEIGHT: float = 1.0
     RESIDUAL_VOLUME_WEIGHT: float = 1.0
 
-    # Constraints (Section 4.4)
+    # Constraints
     MAX_WEIGHT_UTILIZATION: float = 1.0
     COG_TOLERANCE_XY: float = 0.05  # ±5% of length/width
     COG_TOLERANCE_Z: float = 0.10   # +10% of height
     UNPLACED_RANK_WEIGHT: float = 2.0
 
-    # Fitness weights (Section 5.3.2)
+    # Fitness weights
     FITNESS_VOLUME_WEIGHT: float = 1.0
     FITNESS_COG_PENALTY_WEIGHT: float = 0.3  # cog_weight
     # INFEASIBLE_PENALTY computed per run
